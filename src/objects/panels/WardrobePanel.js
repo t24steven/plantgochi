@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { HATS, POTS, CANS } from '../../data/items.js';
-import { SaveService } from '../../services/SaveService.js';
+import { GameState } from '../../services/GameState.js';
 
 export default class WardrobePanel {
 
@@ -68,7 +68,13 @@ export default class WardrobePanel {
   }
 
   _buildItems(s) {
-    const save = SaveService.loadGame();
+    // Leer de GameState (fuente de verdad en memoria)
+    const save = {
+      ownedItems:  GameState.ownedItems  ?? [],
+      equippedHat: GameState.equippedHat ?? null,
+      equippedCan: GameState.equippedCan ?? null,
+      equippedPot: GameState.equippedPot ?? null,
+    };
 
     const tabMap = {
       hats: { list: HATS, equippedKey: 'equippedHat', setFn: (id) => this._plant.setHat(id) },
@@ -102,9 +108,18 @@ export default class WardrobePanel {
       equipBtn.on('pointerover', () => equipBtn.setTint(0xffddaa));
       equipBtn.on('pointerout',  () => equipBtn.clearTint());
       equipBtn.on('pointerdown', () => {
-        save[equippedKey] = equipped ? null : item.id;
-        SaveService.saveGame(save);
-        setFn(save[equippedKey]);
+        // Actualizar GameState en memoria
+        const newVal = GameState[equippedKey] === item.id ? null : item.id;
+        GameState[equippedKey] = newVal;
+        // Persistir al disco
+        try {
+          const raw = localStorage.getItem('ptg_save');
+          const d = raw ? JSON.parse(raw) : {};
+          d[equippedKey] = newVal;
+          localStorage.setItem('ptg_save', JSON.stringify(d));
+        } catch(e) {}
+        setFn(newVal);
+        this._scene.sound?.play('sfx_equip', { volume: 0.6 });
         this._rebuild();
       });
 

@@ -35,9 +35,26 @@ export default class SelectScene extends Phaser.Scene {
       stroke: '#00000066', strokeThickness: 4
     }).setOrigin(0.5);
 
-    // ── Planta centrada ────────────────────────────────
-    const plantImg = this.add.image(cx, cy - 20, `${plant.id}_default`)
-      .setDisplaySize(320, 320);
+    // ── Planta centrada con cara ───────────────────────
+    const plantContainer = this.add.container(cx, cy - 20);
+
+    const plantImg = this.add.image(0, 0, `${plant.id}_default`)
+      .setDisplaySize(280, 280);
+
+    // Cara de la planta
+    const eyeL   = this.add.image(-42, -40, 'face_eye_left')  .setDisplaySize(36, 36);
+    const eyeR   = this.add.image( 42, -40, 'face_eye_right') .setDisplaySize(36, 36);
+    const mouth  = this.add.image(  0,   0, 'face_mouth')     .setDisplaySize(38, 26);
+    const blushL = this.add.image(-58, -18, 'face_blush_left') .setDisplaySize(34, 20).setAlpha(0.8);
+    const blushR = this.add.image( 58, -18, 'face_blush_right').setDisplaySize(34, 20).setAlpha(0.8);
+
+    plantContainer.add([plantImg, eyeL, eyeR, mouth, blushL, blushR]);
+
+    // Idle bounce
+    this.tweens.add({
+      targets: plantContainer, y: cy - 20 - 8,
+      duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
 
     // ── Stats ──────────────────────────────────────────
     const statDefs = [
@@ -84,7 +101,7 @@ export default class SelectScene extends Phaser.Scene {
       return this.add.circle(cx - ((PLANTS.length - 1) * 14) + i * 28, height * 0.90, 8, color);
     });
 
-    content.add([nameText, plantImg, ...statObjs, ...dots]);
+    content.add([nameText, plantContainer, ...statObjs, ...dots]);
 
     // ── Flechas (fuera del container — siempre visibles) ─
     const arrowL = this.add.image(width * 0.18, cy, 'arrow_left')
@@ -132,6 +149,14 @@ export default class SelectScene extends Phaser.Scene {
       targets: content, alpha: 1,
       duration: 220, ease: 'Power1'
     });
+
+    // Reproducir voz de la planta
+    const voiceMap = { cactus: 'sfx_cactus_voice', snakeplant: 'sfx_snake_voice', sunflower: 'sfx_sun_voice' };
+    const voiceKey = voiceMap[plant.id];
+    if (voiceKey) {
+      this.sound.stopAll();
+      this.time.delayedCall(250, () => this.sound.play(voiceKey, { volume: 0.8 }));
+    }
   }
 
   _selectPlant() {

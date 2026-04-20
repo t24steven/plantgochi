@@ -127,11 +127,40 @@ export default class BootScene extends Phaser.Scene {
     this.load.image('ui_heart',            '/assets/effects/heart.png');
     this.load.image('ui_fertilizer_score', '/assets/ui/fert_bar.png');
     this.load.image('plant_pot_yoplait',   '/assets/pots/pot3.png');
-    this.load.image('btn_pause',           '/assets/buttons/next_btn.png');
-    this.load.image('btn_exit',            '/assets/buttons/back_btn.png');
+
+    // ── UI minijuegos ─────────────────────────────────────
+    this.load.image('mg_card_fertilizer', '/assets/ui/catch_fertilizer.png');
+    this.load.image('mg_card_bugs',       '/assets/ui/kill_bugs.png');
+    this.load.image('mg_menu_bg',         '/assets/ui/menu_games.png');
+    this.load.image('mg_icon_gamepad',    '/assets/ui/mini_games.png');
+    this.load.image('mg_pause_btn',       '/assets/ui/pause.png');
+    this.load.image('mg_exit_btn',        '/assets/ui/exit_btn.png');
+    this.load.image('mg_continue_btn',    '/assets/ui/continue_btn.png');
+    this.load.image('mg_retry_btn',       '/assets/ui/retry_btn.png');
+    this.load.image('mg_you_lose',        '/assets/ui/you_lose.png');
+    this.load.image('mg_pause_panel',     '/assets/ui/pause_advise.png');
+    this.load.image('mg_lifes',           '/assets/ui/lifes.png');
+    this.load.image('mg_lifes_heart',     '/assets/ui/lifes_heart.png');
+    this.load.image('mg_bicho',           '/assets/ui/bicho.png');
+    // ── Notebooks de instrucciones de minijuegos ──────────
+    this.load.image('mg_info_fertilizer', '/assets/info/catch.png');
+    this.load.image('mg_info_bugs',       '/assets/info/kill.png');
+    // ── Botón de audio ────────────────────────────────────
+    this.load.image('btn_voice',          '/assets/ui/voice.png');
 
     // ── Audio ────────────────────────────────────────────
-    this.load.audio('bgm', '/assets/sound/audio.mp3');
+    this.load.audio('bgm',              '/assets/sound/audio.mp3');
+    this.load.audio('sfx_click',        '/assets/sound/clic.mp3');
+    this.load.audio('sfx_coins',        '/assets/sound/coins.mp3');
+    this.load.audio('sfx_buy',          '/assets/sound/comprar.mp3');
+    this.load.audio('sfx_equip',        '/assets/sound/equipar.mp3');
+    this.load.audio('sfx_lose',         '/assets/sound/lose1.mp3');
+    this.load.audio('sfx_htp_voice',    '/assets/sound/how_to_play_voice.mp3');
+    this.load.audio('sfx_pp_voice',     '/assets/sound/pp_voice.mp3');
+    this.load.audio('sfx_bugs_voice',   '/assets/sound/kill_the_bugs_voice.mp3');
+    this.load.audio('sfx_cactus_voice', '/assets/sound/catus_voice.mp3');
+    this.load.audio('sfx_snake_voice',  '/assets/sound/sanke_voice.mp3');
+    this.load.audio('sfx_sun_voice',    '/assets/sound/sunflower_voice.mp3');
 
     // ── Títulos ──────────────────────────────────────────
     this.load.image('title', '/assets/titles/plantagochi.png');

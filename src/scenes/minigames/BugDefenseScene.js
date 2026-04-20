@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { SCENES } from '../../constants.js';
-import { EventBus, EVENTS } from '../../services/EventBus.js';
+import { SCENES, MINIGAME_BUGS } from '../../constants.js';
+import { PLANTS } from '../../data/plants.js';
 
 export default class BugDefenseScene extends Phaser.Scene {
   constructor() {
@@ -10,6 +10,8 @@ export default class BugDefenseScene extends Phaser.Scene {
     this._lives   = 3;
     this._playing = false;
     this._paused  = false;
+    this._plantData = null;
+    this._saveData  = null;
 
     // Dificultad escalable
     this._spawnDelay = 1600;
@@ -17,81 +19,145 @@ export default class BugDefenseScene extends Phaser.Scene {
     this._wave       = 0;
   }
 
+  init() {
+    try {
+      const raw = localStorage.getItem('ptg_save');
+      const save = raw ? JSON.parse(raw) : null;
+      this._saveData  = save;
+      this._plantData = save ? (PLANTS.find(p => p.id === save.plantId) ?? PLANTS[0]) : PLANTS[0];
+    } catch(e) {
+      this._saveData  = null;
+      this._plantData = PLANTS[0];
+    }
+  }
+
   create() {
     const { width, height } = this.cameras.main;
     this._width  = width;
     this._height = height;
 
+    const gx = v => v * width  / 1280;
+    const gy = v => v * height / 720;
+
     this.add.image(width / 2, height / 2, 'mg_bg_bugs').setDisplaySize(width, height);
 
-    // UI: Coins
-    this.add.image(75, 42, 'ui_coin_small').setDisplaySize(42, 42).setDepth(20);
-    this._coinText = this.add.text(135, 32, '0', {
-      fontSize: '28px', color: '#FFD700', fontFamily: 'Arial', fontStyle: 'bold'
-    }).setDepth(21);
+    // ── Monedas ────────────────────────────────────────
+    this.add.image(gx(75), gy(42), 'ui_coin_small').setDisplaySize(gx(130), gy(38)).setDepth(20);
+    this._coinText = this.add.text(gx(75), gy(38), '0', {
+      fontSize: `${gx(24)}px`, color: '#7a5200', fontFamily: 'Arial', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(21);
 
-    // Corazones
-    this._hearts = this.add.container(280, 42).setDepth(20);
+    // ── Vidas ──────────────────────────────────────────
+    this._livesBar = this.add.image(width / 2, gy(42), 'mg_lifes')
+      .setDisplaySize(gx(180), gy(70)).setDepth(20);
+    this._heartImages = [];
+    const heartSpacing = gx(48);
     for (let i = 0; i < 3; i++) {
-      this._hearts.add(
-        this.add.image(i * 45, 0, 'ui_heart').setDisplaySize(38, 38)
+      this._heartImages.push(
+        this.add.image(width / 2 - heartSpacing + i * heartSpacing, gy(42), 'mg_lifes_heart')
+          .setDisplaySize(gx(38), gy(38)).setDepth(21)
       );
     }
 
-    // Botones con listeners
-    this._btnPause = this.add.image(width - 75, 42, 'btn_pause')
-      .setDisplaySize(45, 45).setDepth(20).setInteractive();
-    this._btnExit  = this.add.image(width - 25, 42, 'btn_exit')
-      .setDisplaySize(45, 45).setDepth(20).setInteractive();
+    // ── Botones pausa / salida ─────────────────────────
+    this._btnPause = this.add.image(width - gx(110), gy(42), 'mg_pause_btn')
+      .setDisplaySize(gx(48), gy(48)).setDepth(20).setInteractive({ useHandCursor: true });
+    this._btnExit  = this.add.image(width - gx(45), gy(42), 'mg_exit_btn')
+      .setDisplaySize(gx(110), gy(46)).setDepth(20).setInteractive({ useHandCursor: true });
 
     this._btnPause.on('pointerdown', () => this._togglePause());
     this._btnExit.on('pointerdown',  () => this._exitGame());
 
-    // Planta
-    this._plant = this.add.container(width / 2, height - 130).setDepth(5);
-    this._plant.add([
-      this.add.image(0,  25, 'plant_pot_yoplait').setDisplaySize(95, 85),
-      this.add.image(0, -45, 'cactus_default').setDisplaySize(85, 105),
-    ]);
+    // ── Planta del jugador con cara y accesorios ──────────
+    this._buildPlant(width / 2, height - 130);
 
     this._bugs = this.physics.add.group();
     this._showInstructions();
   }
 
-  // ── Instrucciones ──────────────────────────────────────
+  // ── Construir planta con cara y accesorios ─────────────
+  _buildPlant(x, y) {
+    const plantId   = this._plantData?.id ?? 'cactus';
+    const stage     = this._saveData?.stage ?? 2;
+    const stageKey  = stage === 0 ? `${plantId}_semilla` : stage === 1 ? `${plantId}_brote` : `${plantId}_default`;
+    const stageSize = stage === 0 ? 90 : stage === 1 ? 130 : 160;
+    const faceOffY  = stageSize === 90 ? -20 : stageSize === 130 ? -35 : -50;
 
+    this._plant = this.add.container(x, y).setDepth(5);
+
+    const potKey = this._saveData?.equippedPot ?? 'pot_base';
+    this._plant.add(this.add.image(0, 25, potKey).setDisplaySize(95, 85));
+    this._plant.add(this.add.image(0, -45, stageKey).setDisplaySize(stageSize, stageSize));
+
+    const scale = stageSize / 160;
+    this._faceEyeL   = this.add.image(-28 * scale, faceOffY - 10, 'face_eye_left') .setDisplaySize(28 * scale, 28 * scale);
+    this._faceEyeR   = this.add.image( 28 * scale, faceOffY - 10, 'face_eye_right').setDisplaySize(28 * scale, 28 * scale);
+    this._faceMouth  = this.add.image(0, faceOffY + 20, 'face_mouth')              .setDisplaySize(32 * scale, 22 * scale);
+    this._faceBlushL = this.add.image(-40 * scale, faceOffY + 5, 'face_blush_left') .setDisplaySize(28 * scale, 17 * scale).setAlpha(0);
+    this._faceBlushR = this.add.image( 40 * scale, faceOffY + 5, 'face_blush_right').setDisplaySize(28 * scale, 17 * scale).setAlpha(0);
+    this._plant.add(this._faceEyeL);
+    this._plant.add(this._faceEyeR);
+    this._plant.add(this._faceMouth);
+    this._plant.add(this._faceBlushL);
+    this._plant.add(this._faceBlushR);
+
+    if (this._saveData?.equippedHat) {
+      this._plant.add(this.add.image(0, faceOffY - 60, this._saveData.equippedHat).setDisplaySize(80 * scale, 60 * scale));
+    }
+    if (this._saveData?.equippedCan) {
+      this._plant.add(this.add.image(stageSize * 0.55, 25, this._saveData.equippedCan).setDisplaySize(50, 50));
+    }
+
+    this._idleTween = this.tweens.add({
+      targets: this._plant, y: y - 6,
+      duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+  }
+
+  // ── Expresión de la planta ─────────────────────────────
+  _setPlantExpression(state) {
+    if (!this._faceMouth) return;
+    if (state === 'happy') {
+      this._faceMouth.setTexture('face_mouth');
+      this.tweens.add({ targets: [this._faceBlushL, this._faceBlushR], alpha: 0.9, duration: 200 });
+      this.time.delayedCall(1500, () => this._setPlantExpression('default'));
+    } else if (state === 'sad') {
+      this._faceMouth.setTexture('face_mouth_sad');
+      this.tweens.add({ targets: [this._faceBlushL, this._faceBlushR], alpha: 0, duration: 200 });
+      this.time.delayedCall(1500, () => this._setPlantExpression('default'));
+    } else {
+      this._faceMouth.setTexture('face_mouth');
+      this.tweens.add({ targets: [this._faceBlushL, this._faceBlushR], alpha: 0, duration: 200 });
+    }
+  }
+
+  // ── Instrucciones ──────────────────────────────────────
   _showInstructions() {
     const cx = this._width / 2, cy = this._height / 2;
 
-    const overlay = this.add.rectangle(cx, cy, this._width, this._height, 0x000000, 0.75).setDepth(25);
-    const panel   = this.add.graphics().setDepth(25);
-    panel.fillStyle(0xf2e8d0, 0.98);
-    panel.fillRoundedRect(cx - 260, cy - 150, 520, 300, 18);
-    panel.lineStyle(3, 0x8b5a2b, 1);
-    panel.strokeRoundedRect(cx - 260, cy - 150, 520, 300, 18);
+    const overlay = this.add.rectangle(cx, cy, this._width, this._height, 0x000000, 0.5).setDepth(25);
 
-    const title = this.add.text(cx, cy - 120, 'Kill the\nBugs!', {
-      fontSize: '32px', color: '#5a3e1b', fontFamily: 'Arial', fontStyle: 'bold'
-    }).setOrigin(0.5).setDepth(26);
+    // kill.png: 1162x649 → aspecto 1.79, mostrar a ~900x503
+    const notebook = this.add.image(cx, cy - 30, 'mg_info_bugs')
+      .setDisplaySize(900, 503).setDepth(26);
 
-    const rules = [
-      'Tap bugs before they reach your plant!',
-      '3 hearts = 3 lives!',
-      'Each kill = coins!',
-    ];
-    const ruleTexts = rules.map((rule, i) =>
-      this.add.text(cx, cy - 40 + i * 42, rule, {
-        fontSize: '20px', color: '#5a3e1b', fontFamily: 'Arial', fontStyle: 'bold'
-      }).setOrigin(0.5).setDepth(26)
-    );
+    // Reproducir voz de instrucciones
+    this.time.delayedCall(300, () => this.sound.play('sfx_bugs_voice', { volume: 0.8 }));
 
-    const btnPlay = this.add.text(cx, cy + 95, '▶ PLAY', {
-      fontSize: '26px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold',
-      backgroundColor: '#ff6b35', padding: { x: 45, y: 14 }
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(26);
+    const btnPlay = this.add.image(cx, cy + 220, 'btn_select')
+      .setDisplaySize(220, 65).setInteractive({ useHandCursor: true }).setDepth(27);
+    const btnPlayTxt = this.add.text(cx, cy + 220, 'Play', {
+      fontSize: '26px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(28);
 
+    btnPlay.on('pointerover',  () => btnPlay.setTint(0xffddaa));
+    btnPlay.on('pointerout',   () => btnPlay.clearTint());
     btnPlay.on('pointerdown', () => {
-      [overlay, panel, btnPlay, title, ...ruleTexts].forEach(o => o.destroy());
+      // Solo parar la voz de instrucciones, no el BGM
+      const voice = this.sound.get('sfx_bugs_voice');
+      if (voice?.isPlaying) voice.stop();
+      overlay.destroy(); notebook.destroy();
+      btnPlay.destroy(); btnPlayTxt.destroy();
       this._startGame();
     });
   }
@@ -103,8 +169,8 @@ export default class BugDefenseScene extends Phaser.Scene {
     this._coins      = 0;
     this._lives      = 3;
     this._wave       = 0;
-    this._spawnDelay = 1600;
-    this._bugSpeed   = { min: 100, max: 180 };
+    this._spawnDelay = MINIGAME_BUGS.INITIAL_DELAY;
+    this._bugSpeed   = { min: MINIGAME_BUGS.INITIAL_SPEED_MIN, max: MINIGAME_BUGS.INITIAL_SPEED_MAX };
     this._playing    = true;
     this._paused     = false;
     this._updateHearts();
@@ -122,17 +188,16 @@ export default class BugDefenseScene extends Phaser.Scene {
     });
   }
 
-  // ✅ Escalado de dificultad cada 10 bugs
   _checkDifficulty() {
-    const newWave = Math.floor(this._score / 10);
+    const newWave = Math.floor(this._score / MINIGAME_BUGS.WAVE_SIZE);
     if (newWave > this._wave) {
       this._wave       = newWave;
-      this._spawnDelay = Math.max(600, this._spawnDelay - 150);
+      this._spawnDelay = Math.max(MINIGAME_BUGS.MIN_DELAY, this._spawnDelay - 150);
       this._bugSpeed   = {
-        min: Math.min(this._bugSpeed.min + 15, 280),
-        max: Math.min(this._bugSpeed.max + 20, 360),
+        min: Math.min(this._bugSpeed.min + 15, MINIGAME_BUGS.MAX_SPEED_MIN),
+        max: Math.min(this._bugSpeed.max + 20, MINIGAME_BUGS.MAX_SPEED_MAX),
       };
-      this._startSpawnTimer(); // reinicia el timer con nuevo delay
+      this._startSpawnTimer();
     }
   }
 
@@ -161,7 +226,7 @@ export default class BugDefenseScene extends Phaser.Scene {
   }
 
   _killBug(bug) {
-    if (!bug.active) return;
+    if (!bug || !bug.active) return;
     bug.disableInteractive();
 
     this.tweens.add({
@@ -169,19 +234,21 @@ export default class BugDefenseScene extends Phaser.Scene {
       scale: 0,
       alpha: 0,
       duration: 120,
-      onComplete: () => { if (bug.active) bug.destroy(); }
+      onComplete: () => {
+        try { if (bug && bug.active) bug.destroy(); } catch(e) {}
+      }
     });
 
     this._score++;
-    this._coins += 12;
-    this._coinText.setText(this._coins.toString());
-    this._checkDifficulty(); // ✅ escala dificultad
+    this._coins += MINIGAME_BUGS.COINS_PER_BUG;
+    this._coinText?.setText(this._coins.toString());
+    this.sound.play('sfx_coins', { volume: 0.4 });
+    this._setPlantExpression('happy');
+    this._checkDifficulty();
   }
 
   _updateHearts() {
-    this._hearts.list.forEach((heart, i) => {
-      heart.setAlpha(i < this._lives ? 1 : 0.3);
-    });
+    this._heartImages?.forEach((h, i) => h.setAlpha(i < this._lives ? 1 : 0.25));
   }
 
   // ── Pausa ──────────────────────────────────────────────
@@ -213,50 +280,51 @@ export default class BugDefenseScene extends Phaser.Scene {
 
   _showPauseMenu() {
     const cx = this._width / 2, cy = this._height / 2;
-    this._pauseContainer = this.add.container(0, 0).setDepth(30);
+    this._pauseContainer = this.add.container(cx, cy).setDepth(30);
 
-    const overlay = this.add.rectangle(cx, cy, this._width, this._height, 0x000000, 0.6);
-    const panel   = this.add.graphics();
-    panel.fillStyle(0xf2e8d0, 0.98);
-    panel.fillRoundedRect(cx - 180, cy - 120, 360, 240, 18);
-    panel.lineStyle(3, 0x8b5a2b, 1);
-    panel.strokeRoundedRect(cx - 180, cy - 120, 360, 240, 18);
+    const overlay   = this.add.rectangle(0, 0, this._width, this._height, 0x000000, 0.6);
+    const panel     = this.add.image(0, -20, 'mg_pause_panel').setDisplaySize(585, 385);
 
-    const title     = this.add.text(cx, cy - 78, '⏸ Paused', {
-      fontSize: '30px', color: '#5a3e1b', fontFamily: 'Arial', fontStyle: 'bold'
-    }).setOrigin(0.5);
+    // Botones lado a lado
+    const btnResume = this.add.image(-130, 80, 'mg_continue_btn')
+      .setDisplaySize(220, 75).setInteractive({ useHandCursor: true });
+    const btnExit   = this.add.image( 130, 80, 'mg_exit_btn')
+      .setDisplaySize(220, 75).setInteractive({ useHandCursor: true });
 
-    const btnResume = this.add.text(cx, cy - 10, '▶ Resume', {
-      fontSize: '24px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold',
-      backgroundColor: '#4ec64e', padding: { x: 35, y: 12 }
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    btnResume.on('pointerover', () => btnResume.setTint(0xdddddd));
+    btnResume.on('pointerout',  () => btnResume.clearTint());
+    btnResume.on('pointerdown', () => {
+      this.sound.play('sfx_click', { volume: 0.4 });
+      this._resumeGame();
+    });
 
-    const btnExit   = this.add.text(cx, cy + 65, '🏠 Exit', {
-      fontSize: '24px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold',
-      backgroundColor: '#ff6b35', padding: { x: 35, y: 12 }
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    btnExit.on('pointerover', () => btnExit.setTint(0xdddddd));
+    btnExit.on('pointerout',  () => btnExit.clearTint());
+    btnExit.on('pointerdown', () => {
+      this.sound.play('sfx_click', { volume: 0.4 });
+      this._exitGame();
+    });
 
-    btnResume.on('pointerdown', () => this._resumeGame());
-    btnExit.on('pointerdown',   () => this._exitGame());
-
-    this._pauseContainer.add([overlay, panel, title, btnResume, btnExit]);
+    this._pauseContainer.add([overlay, panel, btnResume, btnExit]);
   }
 
-  // ✅ Exit emite recompensa antes de salir
+  // Exit: salir sin terminar la partida
   _exitGame() {
     this._playing = false;
     this._paused  = false;
     this._spawnTimer?.remove();
     this._bugs.clear(true, true);
     this.scene.start(SCENES.YARD, {
-      reward: this._coins > 0 ? { coins: this._coins } : null
+      reward: { coins: this._coins }
     });
   }
 
   shutdown() {
     this._spawnTimer?.remove();
-    this._bugs?.clear(true, true);
+    this._idleTween?.stop();
+    if (this._bugs && this._bugs.active) this._bugs.clear(true, true);
     this._pauseContainer?.destroy();
+    this._pauseContainer = null;
   }
 
   // ── Update ─────────────────────────────────────────────
@@ -264,19 +332,25 @@ export default class BugDefenseScene extends Phaser.Scene {
   update() {
     if (!this._playing) return;
 
-    const plantX = this._width / 2;
-    const plantY = this._height - 130;
+    const plantX = this._plant?.x ?? this._width / 2;
+    const plantY = this._plant?.y ?? this._height - 130;
 
-    this._bugs.getChildren().forEach(bug => {
-      if (!bug.active) return;
+    // Iterar sobre copia para evitar crash si _endGame destruye el grupo
+    const bugs = this._bugs.getChildren().slice();
+    for (const bug of bugs) {
+      if (!bug.active) continue;
       const dist = Phaser.Math.Distance.Between(bug.x, bug.y, plantX, plantY);
       if (dist < 75) {
-        bug.destroy();
+        try { bug.destroy(); } catch(e) {}
         this._lives--;
         this._updateHearts();
-        if (this._lives <= 0) this._endGame();
+        this._setPlantExpression('sad');
+        if (this._lives <= 0) {
+          this._endGame();
+          return;
+        }
       }
-    });
+    }
   }
 
   _endGame() {
@@ -285,38 +359,40 @@ export default class BugDefenseScene extends Phaser.Scene {
     this._spawnTimer?.remove();
     this._bugs.clear(true, true);
 
+    this.sound.play('sfx_lose', { volume: 0.7 });
+
     const cx = this._width / 2, cy = this._height / 2;
 
-    const panel = this.add.graphics().setDepth(28);
-    panel.fillStyle(0xf2e8d0, 0.98);
-    panel.fillRoundedRect(cx - 240, cy - 130, 480, 270, 16);
-    panel.lineStyle(3, 0x8b5a2b, 1);
-    panel.strokeRoundedRect(cx - 240, cy - 130, 480, 270, 16);
+    const overlay = this.add.rectangle(cx, cy, this._width, this._height, 0x000000, 0.5).setDepth(28);
 
-    this.add.text(cx, cy - 95, 'Game Over!', {
-      fontSize: '30px', color: '#5a3e1b', fontFamily: 'Arial', fontStyle: 'bold'
-    }).setOrigin(0.5).setDepth(29);
+    const panelW = 600, panelH = 320;
+    const panel = this.add.graphics().setDepth(29);
+    panel.fillStyle(0xfdf6e3, 0.97);
+    panel.fillRoundedRect(cx - panelW / 2, cy - panelH / 2 - 20, panelW, panelH, 18);
+    panel.lineStyle(4, 0xc8a96e, 1);
+    panel.strokeRoundedRect(cx - panelW / 2, cy - panelH / 2 - 20, panelW, panelH, 18);
 
-    this.add.text(cx, cy - 35, `🐛 Bugs eliminados: ${this._score}`, {
-      fontSize: '22px', color: '#ff6b35', fontFamily: 'Arial', fontStyle: 'bold'
-    }).setOrigin(0.5).setDepth(29);
+    this.add.image(cx, cy - 80, 'mg_you_lose')
+      .setDisplaySize(380, 120).setDepth(30);
 
-    this.add.text(cx, cy + 20, `🪙 Coins: ${this._coins}`, {
-      fontSize: '22px', color: '#FFD700', fontFamily: 'Arial', fontStyle: 'bold'
-    }).setOrigin(0.5).setDepth(29);
+    const btnSpacing = 140;
 
-    this.add.text(cx, cy + 70, `⚡ Wave alcanzada: ${this._wave + 1}`, {
-      fontSize: '18px', color: '#5a3e1b', fontFamily: 'Arial', fontStyle: 'bold'
-    }).setOrigin(0.5).setDepth(29);
+    const retryBtn = this.add.image(cx - btnSpacing, cy + 80, 'mg_retry_btn')
+      .setDisplaySize(220, 65).setDepth(30).setInteractive({ useHandCursor: true });
+    retryBtn.on('pointerover',  () => retryBtn.setTint(0xdddddd));
+    retryBtn.on('pointerout',   () => retryBtn.clearTint());
+    retryBtn.on('pointerdown',  () => {
+      this.sound.play('sfx_click', { volume: 0.4 });
+      this.scene.start(SCENES.YARD, { reward: { coins: this._coins } });
+    });
 
-    this.add.text(cx, cy + 118, '🏠 Back', {
-      fontSize: '22px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold',
-      backgroundColor: '#ff6b35', padding: { x: 35, y: 12 }
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(29)
-      .on('pointerdown', () => {
-        this.scene.start(SCENES.YARD, {
-          reward: { coins: this._coins }
-        });
-      });
+    const exitBtn = this.add.image(cx + btnSpacing, cy + 80, 'mg_exit_btn')
+      .setDisplaySize(220, 65).setDepth(30).setInteractive({ useHandCursor: true });
+    exitBtn.on('pointerover',  () => exitBtn.setTint(0xdddddd));
+    exitBtn.on('pointerout',   () => exitBtn.clearTint());
+    exitBtn.on('pointerdown',  () => {
+      this.sound.play('sfx_click', { volume: 0.4 });
+      this.scene.start(SCENES.YARD, { reward: { coins: this._coins } });
+    });
   }
 }

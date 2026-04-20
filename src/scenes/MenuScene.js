@@ -38,28 +38,46 @@ export default class MenuScene extends Phaser.Scene {
 
   // ── STEP 1: Privacy Policy ────────────────────────────
   _showPrivacy() {
-    this.add.image(640, 360, 'bg_lobby').setDisplaySize(1280, 720);
-    this.add.image(640, 340, 'icon_privacy').setScale(0.8).setOrigin(0.5);
+    const { width, height } = this.cameras.main;
+    this.add.image(width / 2, height / 2, 'bg_lobby').setDisplaySize(width, height);
+    this.add.image(width / 2, height / 2 - 20, 'icon_privacy').setScale(0.8).setOrigin(0.5);
 
-    const btn = this.add.image(640, 590, 'btn_next')
-      .setScale(0.8).setInteractive({ useHandCursor: true });
+    this._addAudioBtn();
+    // Reproducir voz de privacy policy
+    this.time.delayedCall(300, () => this.sound.play('sfx_pp_voice', { volume: 0.8 }));
 
-    btn.on('pointerover', () => btn.setScale(0.85));
-    btn.on('pointerout',  () => btn.setScale(0.8));
-    btn.on('pointerdown', () => this._transition(() => this._showHowToPlay()));
-  }
-
-  // ── STEP 2: How to Play ───────────────────────────────
-  _showHowToPlay() {
-    this.add.image(640, 360, 'bg_lobby').setDisplaySize(1280, 720);
-    this.add.image(640, 340, 'icon_htp').setScale(0.8).setOrigin(0.5);
-
-    const btn = this.add.image(640, 590, 'btn_start')
+    const btn = this.add.image(width / 2, height * 0.82, 'btn_next')
       .setScale(0.8).setInteractive({ useHandCursor: true });
 
     btn.on('pointerover', () => btn.setScale(0.85));
     btn.on('pointerout',  () => btn.setScale(0.8));
     btn.on('pointerdown', () => {
+      // Solo parar voces, no el BGM
+      const ppVoice = this.sound.get('sfx_pp_voice');
+      if (ppVoice?.isPlaying) ppVoice.stop();
+      this._transition(() => this._showHowToPlay());
+    });
+  }
+
+  // ── STEP 2: How to Play ───────────────────────────────
+  _showHowToPlay() {
+    const { width, height } = this.cameras.main;
+    this.add.image(width / 2, height / 2, 'bg_lobby').setDisplaySize(width, height);
+    this.add.image(width / 2, height / 2 - 20, 'icon_htp').setScale(0.8).setOrigin(0.5);
+
+    this._addAudioBtn();
+    // Reproducir voz de how to play
+    this.time.delayedCall(300, () => this.sound.play('sfx_htp_voice', { volume: 0.8 }));
+
+    const btn = this.add.image(width / 2, height * 0.82, 'btn_next')
+      .setScale(0.8).setInteractive({ useHandCursor: true });
+
+    btn.on('pointerover', () => btn.setScale(0.85));
+    btn.on('pointerout',  () => btn.setScale(0.8));
+    btn.on('pointerdown', () => {
+      // Solo parar voces, no el BGM
+      const htpVoice = this.sound.get('sfx_htp_voice');
+      if (htpVoice?.isPlaying) htpVoice.stop();
       this.cameras.main.fadeOut(200, 0, 0, 0);
       this.cameras.main.once('camerafadeoutcomplete', () => {
         if (SaveService.hasSave()) {
@@ -68,6 +86,40 @@ export default class MenuScene extends Phaser.Scene {
           this.scene.start(SCENES.SELECT);
         }
       });
+    });
+  }
+
+  // ── Botón de audio (pause/resume) ────────────────────
+  _addAudioBtn() {
+    const { width, height } = this.cameras.main;
+    const btn = this.add.image(width - 45, height - 45, 'btn_voice')
+      .setDisplaySize(70, 70).setInteractive({ useHandCursor: true });
+
+    const isMuted = () => {
+      const bgm = this.sound.get('bgm');
+      return !bgm || !bgm.isPlaying;
+    };
+
+    btn.setAlpha(isMuted() ? 0.4 : 1);
+
+    btn.on('pointerdown', () => {
+      // Parar voces activas
+      ['sfx_pp_voice', 'sfx_htp_voice'].forEach(k => {
+        const s = this.sound.get(k);
+        if (s && s.isPlaying) s.stop();
+      });
+
+      const bgm = this.sound.get('bgm');
+      if (!bgm) return;
+
+      if (bgm.isPlaying) {
+        bgm.pause();
+        btn.setAlpha(0.4);
+      } else {
+        // Phaser: resume() si fue pausado, play() si nunca arrancó o fue detenido
+        try { bgm.resume(); } catch(e) { bgm.play(); }
+        btn.setAlpha(1);
+      }
     });
   }
 }

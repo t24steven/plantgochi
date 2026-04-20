@@ -1,5 +1,5 @@
 import { HATS, POTS, CANS } from '../../data/items.js';
-import { SaveService } from '../../services/SaveService.js';
+import { GameState } from '../../services/GameState.js';
 
 export default class StorePanel {
 
@@ -54,7 +54,8 @@ export default class StorePanel {
     const itemList = this._tab === 'hats' ? HATS
                    : this._tab === 'pots' ? POTS : CANS;
 
-    const save = SaveService.loadGame();
+    // Leer de GameState (fuente de verdad en memoria)
+    const save = { ownedItems: GameState.ownedItems ?? [] };
     const itemObjs = itemList.flatMap((item, i) => {
       const x     = -300 + i * 310;
       const owned = save.ownedItems?.includes(item.id);
@@ -102,10 +103,19 @@ export default class StorePanel {
   }
 
   _buy(item) {
-    const save = SaveService.loadGame();
     if (!this._stats.spendCoins(item.price)) return;
-    save.ownedItems = [...(save.ownedItems ?? []), item.id];
-    SaveService.saveGame(save);
+    // Actualizar GameState en memoria
+    GameState.ownedItems = [...(GameState.ownedItems ?? []), item.id];
+    GameState.coins = this._stats.coins;
+    // Persistir al disco
+    try {
+      const raw  = localStorage.getItem('ptg_save');
+      const save = raw ? JSON.parse(raw) : {};
+      save.ownedItems = GameState.ownedItems;
+      save.coins = GameState.coins;
+      localStorage.setItem('ptg_save', JSON.stringify(save));
+    } catch(e) {}
+    this._scene.sound?.play('sfx_buy', { volume: 0.6 });
     this._rebuild();
   }
 

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { SCENES, WEATHER } from '../constants.js';
 import { PLANTS } from '../data/plants.js';
-import { SaveService } from '../services/SaveService.js';
+import { GameState } from '../services/GameState.js';
 import { EventBus, EVENTS } from '../services/EventBus.js';
 import Plant from '../objects/Plant.js';
 import StatsManager from '../objects/StatsManager.js';
@@ -12,13 +12,19 @@ export default class YardScene extends Phaser.Scene {
   }
 
   init(data) {
-    const save      = SaveService.loadGame();
-    const plantData = PLANTS.find(p => p.id === save.plantId);
+    let save = null;
+    try {
+      const raw = localStorage.getItem('ptg_save');
+      save = raw ? JSON.parse(raw) : null;
+    } catch(e) { save = null; }
+    if (!save) return;
+    const plantData = PLANTS.find(p => p.id === save.plantId) ?? PLANTS[0];
     this._plantData     = plantData;
-    this._saveData      = save;
+    this._saveData      = JSON.parse(JSON.stringify(save));
     this._weather       = save.weather ?? 'sunny';
     this._weatherEndsAt = save.weatherEndsAt ?? (Date.now() + 300000);
     this._pendingReward = data?.reward ?? null;
+    GameState.load(save); // sincronizar GameState al entrar al yard
   }
 
   create() {
@@ -35,8 +41,9 @@ export default class YardScene extends Phaser.Scene {
     // ── Stats ──────────────────────────────────────────
     this.statsManager = new StatsManager(
       this._saveData.stats,
-      this._saveData.stage      ?? 0,
-      this._saveData.growthTime ?? 0
+      this._saveData.stage           ?? 0,
+      this._saveData.growthTime      ?? 0,
+      this._saveData.stageGrowthTime ?? 0
     );
     this.statsManager.coins = this._saveData.coins ?? 0;
     this.statsManager.setWeather(this._weather);
@@ -44,16 +51,10 @@ export default class YardScene extends Phaser.Scene {
     this._fertStock = this._saveData.fertilizerStock ?? 0;
 
     // ── Recompensa de minijuego (si viene de uno) ──────
-    if (this._pendingReward) {
-      const r = this._pendingReward;
-      if (r.coins)          this.statsManager.coins += r.coins;
-      if (r.fertilizerBags) this._fertStock += r.fertilizerBags;
-      if (r.water)          this.statsManager.stats.water = Math.min(100, (this.statsManager.stats.water ?? 0) + r.water);
-      if (r.sun)            this.statsManager.stats.sun   = Math.min(100, (this.statsManager.stats.sun   ?? 0) + r.sun);
-      this._saveData.stats = { ...this.statsManager.stats };
-      this._saveData.coins = this.statsManager.coins;
-      this._pendingReward  = null;
-    }
+    // Se aplica DESPUÉS de crear la UI para que _coinText exista
+    this._pendingRewardData = this._pendingReward;
+    this._pendingReward = null;
+
     this.plant = new Plant(this, cx, cy, this._plantData, this._saveData.stage ?? 0, this.statsManager);
     if (this._saveData.equippedHat) this.plant.setHat(this._saveData.equippedHat);
     if (this._saveData.equippedPot) this.plant.setPot(this._saveData.equippedPot);
@@ -65,37 +66,138 @@ export default class YardScene extends Phaser.Scene {
     this._createBottomButtons();
     this._createMinigamesNotebook();
 
+    // ── Aplicar recompensa ahora que la UI existe ──────
+    if (this._pendingRewardData) {
+      const r = this._pendingRewardData;
+      if (r.coins > 0)          this.statsManager.addCoins(r.coins);
+      if (r.fertilizerBags > 0) {
+        this._fertStock += r.fertilizerBags;
+        if (this._fertStockText) this._fertStockText.setText(`${this._fertStock}`);
+      }
+      if (r.water > 0) this.statsManager.add('water', r.water);
+      if (r.sun > 0)   this.statsManager.add('sun', r.sun);
+      this._saveData.coins           = this.statsManager.coins;
+      this._saveData.stats           = { ...this.statsManager.stats };
+      this._saveData.fertilizerStock = this._fertStock;
+      this._pendingRewardData = null;
+    }
+
     // ── Clima ──────────────────────────────────────────
     this._particles = null;
     this._weatherLabel = null;
     this._applyWeather(this._weather, false);
     this._startWeatherCycle();
 
-    // ── Sol pasivo en exterior ─────────────────────────
-    // Cada 15s suma sun si el clima lo permite
-    this._sunTimer = this.time.addEvent({
-      delay: 15000,
-      loop:  true,
-      callback: () => {
-        const noSun = ['snowy', 'cloudy'].includes(this._weather);
-        if (!noSun) {
-          this.statsManager.add('sun', 4); // menos que el decay para que siga bajando
-          this._updateBar('sun');
-        }
-      }
-    });
+    // ── Sol pasivo eliminado — ahora el sol sube clickeando soles que caen ──
+
+    // ── Soles que caen en el patio ─────────────────────
+    this._spawnSuns();
 
     // ── Stage up listener ──────────────────────────────
-    // Solo en GameScene — YardScene no necesita duplicarlo
+    this._onStageUp = ({ stage }) => {
+      if (this.plant && !this.plant._destroyed) {
+        this.plant.setStage(stage);
+      }
+      if (this._saveData) this._saveData.stage = stage;
+    };
+    EventBus.on(EVENTS.STAGE_UP, this._onStageUp, this);
 
     // ── Muerte de planta en exterior ───────────────────
-    EventBus.on(EVENTS.PLANT_DIED, () => {
+    this._onPlantDied = () => {
       this.statsManager?.stopDecay();
       this._sunTimer?.remove();
       this.time.delayedCall(1500, () => {
         this.scene.start(SCENES.GAME_OVER);
       });
-    }, this);
+    };
+    EventBus.on(EVENTS.PLANT_DIED, this._onPlantDied, this);
+
+    // ── Actualizar barras cuando cambian los stats ──────
+    this._onStatChanged = ({ stat, source }) => {
+      if (source !== this.statsManager) return;
+      this._updateBar(stat);
+    };
+    EventBus.on(EVENTS.STAT_CHANGED, this._onStatChanged, this);
+
+    // ── Actualizar texto de monedas ─────────────────────
+    this._onCoinsUpdated = ({ amount, source }) => {
+      if (source !== this.statsManager) return;
+      if (this._coinText && !this._coinText.destroyed) this._coinText.setText(`${amount}`);
+    };
+    EventBus.on(EVENTS.COINS_UPDATED, this._onCoinsUpdated, this);
+  }
+
+  // ── Soles que caen ────────────────────────────────────
+  _spawnSuns() {
+    const scheduleNext = () => {
+      this._sunSpawnTimer = this.time.delayedCall(
+        Phaser.Math.Between(1500, 3000), // más frecuentes (antes 2000-4000)
+        () => {
+          if (!this.statsManager || this.statsManager.isDead()) return;
+          const noSun = ['snowy', 'cloudy'].includes(this._weather);
+          if (!noSun) this._dropSun();
+          scheduleNext();
+        }
+      );
+    };
+    scheduleNext();
+  }
+
+  _dropSun() {
+    const { width, height } = this.cameras.main;
+    const x = Phaser.Math.Between(this.gx(100), width - this.gx(100));
+
+    // Sol más grande y visible
+    const sun = this.add.image(x, -60, 'fx_sun_ray')
+      .setDisplaySize(this.gx(90), this.gx(90)) // más grande (antes 70)
+      .setDepth(6)
+      .setInteractive({ useHandCursor: true })
+      .setAlpha(1);
+
+    // Rotación continua
+    this.tweens.add({
+      targets: sun, angle: 360,
+      duration: 1800, repeat: -1, ease: 'Linear'
+    });
+
+    // Caída más lenta para que sea más fácil clickear
+    this.tweens.add({
+      targets: sun,
+      y: height * 0.80,
+      duration: 5000, // más lento (antes 3500)
+      ease: 'Linear',
+      onComplete: () => {
+        if (sun.active) {
+          this.tweens.add({
+            targets: sun, alpha: 0, duration: 400,
+            onComplete: () => { try { sun.destroy(); } catch(e) {} }
+          });
+        }
+      }
+    });
+
+    // Click → suma sol + efecto
+    sun.on('pointerdown', () => {
+      if (!sun.active) return;
+      sun.disableInteractive();
+
+      const gain = 20; // más ganancia (antes 15)
+      this.statsManager.add('sun', gain);
+      this._showHint(sun.x, sun.y - 40, `☀️ +${gain} Sun`);
+      this.sound?.play('sfx_click', { volume: 0.5 });
+
+      this.tweens.add({
+        targets: sun,
+        scaleX: 2.0, scaleY: 2.0,
+        alpha: 0,
+        duration: 300,
+        ease: 'Power2',
+        onComplete: () => { try { sun.destroy(); } catch(e) {} }
+      });
+    });
+
+    sun.on('pointerover', () => sun.setTint(0xffff44));
+    sun.on('pointerout',  () => sun.clearTint());
   }
 
   // ── Clima ─────────────────────────────────────────────
@@ -130,19 +232,51 @@ export default class YardScene extends Phaser.Scene {
     this._weather = type;
     this.statsManager.setWeather(type);
 
-    // ── Limpiar partículas anteriores ──────────────────
-    if (this._particles) {
-      this._particles.destroy();
-      this._particles = null;
+    // ── Limpiar efectos anteriores ─────────────────────
+    if (this._particles) { this._particles.destroy(); this._particles = null; }
+    if (this._weatherOverlay) { this._weatherOverlay.destroy(); this._weatherOverlay = null; }
+
+    const { width, height } = this.cameras.main;
+
+    // ── Overlay de color según clima ───────────────────
+    const overlayColors = {
+      sunny:  null,           // sin overlay
+      cloudy: 0x8899aa,       // gris azulado
+      rainy:  0x334466,       // azul oscuro
+      snowy:  0xaaccee,       // azul claro
+    };
+    const overlayAlphas = { sunny: 0, cloudy: 0.18, rainy: 0.28, snowy: 0.22 };
+
+    if (overlayColors[type]) {
+      this._weatherOverlay = this.add.rectangle(
+        width / 2, height / 2, width, height,
+        overlayColors[type], overlayAlphas[type]
+      ).setDepth(7);
+      if (animate) {
+        this._weatherOverlay.setAlpha(0);
+        this.tweens.add({ targets: this._weatherOverlay, alpha: overlayAlphas[type], duration: 1000 });
+      }
+    }
+
+    // ── Tint en la planta según clima ──────────────────
+    const plantTints = { sunny: null, cloudy: 0xccddee, rainy: 0x99bbdd, snowy: 0xddeeff };
+    if (this.plant) {
+      const tint = plantTints[type];
+      // Container no tiene setTint — aplicar a cada hijo
+      this.plant.list?.forEach(child => {
+        if (child && child.setTint) {
+          if (tint) child.setTint(tint);
+          else      child.clearTint();
+        }
+      });
     }
 
     // ── Icono/label de clima en HUD ────────────────────
     const icons = { sunny: '☀️', cloudy: '☁️', rainy: '🌧️', snowy: '❄️' };
-    const { width } = this.cameras.main;
-
     if (this._weatherLabel) this._weatherLabel.destroy();
-    this._weatherLabel = this.add.text(width - this.gx(20), this.gy(20),
-      icons[type] ?? '☀️', { fontSize: '32px' }
+    this._weatherLabel = this.add.text(
+      width - this.gx(20), this.gy(20),
+      icons[type] ?? '☀️', { fontSize: '36px' }
     ).setOrigin(1, 0).setDepth(10);
 
     if (animate) {
@@ -151,31 +285,43 @@ export default class YardScene extends Phaser.Scene {
     }
 
     // ── Partículas ─────────────────────────────────────
-    const { height } = this.cameras.main;
-
     if (type === 'rainy') {
       this._particles = this.add.particles(0, -20, 'fx_water_drop', {
         x:         { min: 0, max: width },
-        speedY:    { min: 200, max: 350 },
-        speedX:    { min: -20, max: 20 },
-        scale:     { start: 0.3, end: 0.1 },
-        alpha:     { start: 0.7, end: 0 },
-        lifespan:  1800,
-        frequency: 60,
-        quantity:  2,
+        speedY:    { min: 350, max: 550 },
+        speedX:    { min: -30, max: 30 },
+        scale:     { start: 0.45, end: 0.15 },
+        alpha:     { start: 0.85, end: 0 },
+        lifespan:  1400,
+        frequency: 30,   // más frecuente
+        quantity:  4,    // más cantidad
       }).setDepth(8);
     } else if (type === 'snowy') {
       this._particles = this.add.particles(0, -20, 'fx_soil', {
         x:         { min: 0, max: width },
-        speedY:    { min: 40, max: 90 },
-        speedX:    { min: -30, max: 30 },
-        scale:     { start: 0.25, end: 0.05 },
-        alpha:     { start: 0.8, end: 0 },
+        speedY:    { min: 60, max: 130 },
+        speedX:    { min: -50, max: 50 },
+        scale:     { start: 0.35, end: 0.08 },
+        alpha:     { start: 0.9, end: 0 },
         tint:      0xddeeff,
-        lifespan:  3500,
-        frequency: 120,
-        quantity:  1,
+        lifespan:  4000,
+        frequency: 60,
+        quantity:  3,
       }).setDepth(8);
+    } else if (type === 'cloudy') {
+      // Nubes: partículas lentas y grandes
+      this._particles = this.add.particles(0, 0, 'fx_soil', {
+        x:         { min: -100, max: width + 100 },
+        y:         { min: 0, max: height * 0.4 },
+        speedX:    { min: 20, max: 50 },
+        speedY:    { min: -5, max: 5 },
+        scale:     { start: 1.2, end: 0.6 },
+        alpha:     { start: 0.15, end: 0 },
+        tint:      0x8899aa,
+        lifespan:  6000,
+        frequency: 400,
+        quantity:  1,
+      }).setDepth(7);
     }
   }
 
@@ -185,37 +331,36 @@ export default class YardScene extends Phaser.Scene {
     const pillH = this.gy(62);
     const y     = this.gy(52);
 
-    // Monedas
+    // Monedas — coin.png ya incluye el ícono en el asset
     const cx1 = this.gx(48) + pillW / 2;
     this.add.image(cx1, y, 'ui_coin').setDisplaySize(pillW, pillH).setDepth(5);
-    this.add.image(cx1 - this.gx(70), y, 'ui_coin').setDisplaySize(36, 36).setDepth(6);
-    this._coinText = this.add.text(cx1 + this.gx(5), y, `${this.statsManager.coins}`, {
-      fontSize: '24px', color: '#7a5200',
+    this._coinText = this.add.text(cx1 + this.gx(28), y, `${this.statsManager.coins}`, {
+      fontSize: '22px', color: '#7a5200',
       fontStyle: 'bold', fontFamily: 'Arial'
     }).setOrigin(0.5).setDepth(7);
 
-    // Fertilizante stock (segunda píldora)
-    const cx2 = this.gx(48) + pillW / 2 + pillW + this.gx(20);
-    this.add.image(cx2, y, 'ui_coin').setDisplaySize(pillW, pillH).setDepth(5);
-    this.add.image(cx2 - this.gx(70), y, 'icon_fer').setDisplaySize(36, 36).setDepth(6);
-    this._fertStockText = this.add.text(cx2 + this.gx(5), y, `${this._fertStock}`, {
+    // Fertilizante stock
+    const cx2 = cx1 + pillW + this.gx(20);
+    this.add.image(cx2, y, 'ui_fertilizer_score').setDisplaySize(pillW, pillH).setDepth(5);
+    this._fertStockText = this.add.text(cx2 + this.gx(28), y, `${this._fertStock}`, {
       fontSize: '22px', color: '#4a7a1e',
       fontStyle: 'bold', fontFamily: 'Arial'
     }).setOrigin(0.5).setDepth(7);
   }
 
   // ── Barras de stats izquierda ─────────────────────────
-_createStatsUI() {
+  _createStatsUI() {
   const barW   = this.gx(260);
   const barH   = this.gy(78);
   const x      = this.gx(48) + barW / 2;
-  const startY = this.gy(140);  // Ajustado de 170 a 140 para subir barras
+  const startY = this.gy(140);
   const gap    = this.gy(16);
 
+  // Usar los stats actuales del statsManager, no del saveData
   const defs = [
-    { key: 'icon_water', stat: 'water',      fill: 0x29b6f6, value: this._saveData.stats.water },
-    { key: 'icon_sun',   stat: 'sun',        fill: 0xfdd835, value: this._saveData.stats.sun },
-    { key: 'icon_seeds', stat: 'fertilizer', fill: 0x66bb6a, value: this._saveData.stats.fertilizer },
+    { key: 'icon_water', stat: 'water',      fill: 0x29b6f6, value: this.statsManager.water },
+    { key: 'icon_sun',   stat: 'sun',        fill: 0xfdd835, value: this.statsManager.sun },
+    { key: 'icon_seeds', stat: 'fertilizer', fill: 0x66bb6a, value: this.statsManager.fertilizer },
   ];
 
   this._bars = {};
@@ -277,57 +422,53 @@ _createStatsUI() {
     const cx = width / 2;
     const cy = height / 2;
 
-    this._infoPanel = this.add.container(cx, cy).setDepth(20);
+    this._infoPanel = this.add.container(0, 0).setDepth(20);
 
-    const bg = this.add.rectangle(0, 0, 600, 400, 0xfdf6e3, 0.97)
-      .setStrokeStyle(3, 0xc8a96e);
+    const overlay = this.add.rectangle(cx, cy, width, height, 0x000000, 0.6);
 
-    const title = this.add.text(0, -160, '🎮 Mini Games', {
-      fontSize: '30px', color: '#5a3e1b',
-      fontFamily: 'Arial', fontStyle: 'bold'
-    }).setOrigin(0.5);
+    // Mostrar info de fertilizante primero, con botón para cambiar a bugs
+    let currentInfo = 0;
+    const infoKeys = ['mg_info_fertilizer', 'mg_info_bugs'];
 
-    const games = [
-      { icon: '🌿', name: 'Catch the Fertilizer', reward: '+Coins  +Fertilizer' },
-      { icon: '🐛', name: 'Kill the Bugs',         reward: '+Coins' },
-    ];
+    const infoImg = this.add.image(cx, cy - 20, infoKeys[0])
+      .setDisplaySize(900, 524);
 
-    const gameObjs = games.map((g, i) => {
-      const y = -80 + i * 90;
-      const line = this.add.text(0, y,
-        `${g.icon}  ${g.name}\n     Reward: ${g.reward}`, {
-          fontSize: '18px', color: '#5a3e1b',
-          fontFamily: 'Arial', lineSpacing: 4, align: 'left'
-        }).setOrigin(0.5);
-      return line;
-    });
-
-    const btnPlay = this.add.text(0, 160, '▶  Go to Games', {
-      fontSize: '22px', color: '#ffffff', fontFamily: 'Arial',
-      backgroundColor: '#4CAF50', padding: { x: 30, y: 12 }
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-
-    btnPlay.on('pointerdown', () => {
-      this._goBack();
-      this.time.delayedCall(100, () => this.scene.start(SCENES.MINIGAMES_MENU));
-    });
-
-    const btnClose = this.add.text(270, -185, '✕', {
-      fontSize: '26px', color: '#5a3e1b', fontFamily: 'Arial'
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-
+    // Botón cerrar
+    const btnClose = this.add.image(cx + 440, cy - 280, 'btn_back')
+      .setDisplaySize(80, 40).setInteractive({ useHandCursor: true });
     btnClose.on('pointerdown', () => {
       this._infoPanel.destroy();
       this._infoPanel = null;
     });
 
-    this._infoPanel.add([bg, title, ...gameObjs, btnPlay, btnClose]);
-
-    this._infoPanel.setScale(0.8).setAlpha(0);
-    this.tweens.add({
-      targets: this._infoPanel, scale: 1, alpha: 1,
-      duration: 200, ease: 'Back.easeOut'
+    // Botón siguiente (alternar entre los dos minijuegos)
+    const btnNext = this.add.image(cx + 440, cy + 240, 'btn_next')
+      .setDisplaySize(100, 50).setInteractive({ useHandCursor: true });
+    btnNext.on('pointerdown', () => {
+      currentInfo = (currentInfo + 1) % infoKeys.length;
+      infoImg.setTexture(infoKeys[currentInfo]);
     });
+
+    // Botón ir a minijuegos
+    const btnPlay = this.add.image(cx, cy + 290, 'btn_select')
+      .setDisplaySize(200, 60).setInteractive({ useHandCursor: true });
+    const btnPlayTxt = this.add.text(cx, cy + 290, 'Play!', {
+      fontSize: '22px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    btnPlay.on('pointerover',  () => btnPlay.setTint(0xffddaa));
+    btnPlay.on('pointerout',   () => btnPlay.clearTint());
+    btnPlay.on('pointerdown', () => {
+      this._infoPanel.destroy();
+      this._infoPanel = null;
+      this._saveCurrentState();
+      this.scene.start(SCENES.MINIGAMES_MENU);
+    });
+
+    this._infoPanel.add([overlay, infoImg, btnClose, btnNext, btnPlay, btnPlayTxt]);
+
+    this._infoPanel.setAlpha(0);
+    this.tweens.add({ targets: this._infoPanel, alpha: 1, duration: 200 });
   }
 
   // ── Botones abajo ─────────────────────────────────────
@@ -337,11 +478,8 @@ _createStatsUI() {
     const y    = height - this.gy(65);
 
     // Izquierda: gamepad → minijuegos
-    this._makeBtn(this.gx(100), y, 'icon_gamepad', size, () => {
-      SaveService.saveGame({
-        ...this._saveData,
-        ...this.statsManager.toJSON(),
-      });
+    this._makeBtn(this.gx(100), y, 'mg_icon_gamepad', size, () => {
+      this._saveCurrentState();
       this.scene.start(SCENES.MINIGAMES_MENU);
     });
 
@@ -374,6 +512,7 @@ _createStatsUI() {
     btn.on('pointerdown', () => {
       callback();
       this.tweens.add({ targets: btn, scaleX: 0.88, scaleY: 0.88, duration: 70, yoyo: true });
+      this.sound?.play('sfx_click', { volume: 0.4 });
     });
     btn.on('pointerover', () => btn.setTint(0xdddddd));
     btn.on('pointerout',  () => btn.clearTint());
@@ -416,33 +555,57 @@ _createStatsUI() {
   gy(v) { return v * (this.cameras.main.height / this.baseHeight); }
 
   _goBack() {
-    SaveService.saveGame({
-      ...this._saveData,
-      ...this.statsManager.toJSON(),
-      weather:         this._weather,
-      weatherEndsAt:   this._weatherEndsAt,
-      fertilizerStock: this._fertStock,
-    });
+    this._saveCurrentState();
     this.scene.start(SCENES.GAME);
   }
 
+  _saveCurrentState() {
+    if (!this.statsManager || !this._saveData) return;
+
+    // Sincronizar GameState con el estado actual
+    GameState.coins           = this.statsManager.coins;
+    GameState.stats           = { ...this.statsManager.stats };
+    GameState.stage           = this.statsManager.stage;
+    GameState.growthTime      = this.statsManager.growthTime;
+    GameState.stageGrowthTime = this.statsManager._stageGrowthTime;
+    GameState.fertilizerStock = this._fertStock;
+    GameState.weather         = this._weather;
+    GameState.weatherEndsAt   = this._weatherEndsAt;
+
+    const save = {
+      plantId:         this._saveData.plantId,
+      coins:           GameState.coins,
+      stats:           { ...GameState.stats },
+      stage:           GameState.stage,
+      growthTime:      GameState.growthTime,
+      stageGrowthTime: GameState.stageGrowthTime,
+      fertilizerStock: GameState.fertilizerStock,
+      weather:         GameState.weather,
+      weatherEndsAt:   GameState.weatherEndsAt,
+      ownedItems:      GameState.ownedItems  ?? [],
+      equippedHat:     GameState.equippedHat ?? null,
+      equippedPot:     GameState.equippedPot ?? null,
+      equippedCan:     GameState.equippedCan ?? null,
+    };
+    localStorage.setItem('ptg_save', JSON.stringify(save));
+    this._saveData = save;
+  }
+
   shutdown() {
-    this.statsManager?.stopDecay();
+    this.statsManager?.stopDecay();  // parar decay PRIMERO
+    this._saveCurrentState();
     this._weatherTimer?.remove();
     this._sunTimer?.remove();
+    this._sunSpawnTimer?.remove();
     this._particles?.destroy();
+    this._weatherOverlay?.destroy();
     this._weatherLabel?.destroy();
     this._infoPanel?.destroy();
     this.plant?.destroy();
-    EventBus.off(EVENTS.STAGE_UP,   null, this);
-    EventBus.off(EVENTS.PLANT_DIED, null, this);
-    SaveService.saveGame({
-      ...this._saveData,
-      ...this.statsManager.toJSON(),
-      weather:         this._weather,
-      weatherEndsAt:   this._weatherEndsAt,
-      fertilizerStock: this._fertStock,
-    });
+    EventBus.off(EVENTS.STAGE_UP,      this._onStageUp,      this);
+    EventBus.off(EVENTS.PLANT_DIED,    this._onPlantDied,    this);
+    EventBus.off(EVENTS.STAT_CHANGED,  this._onStatChanged,  this);
+    EventBus.off(EVENTS.COINS_UPDATED, this._onCoinsUpdated, this);
   }
 
 }

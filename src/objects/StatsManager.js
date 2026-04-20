@@ -3,14 +3,16 @@ import { EventBus, EVENTS } from '../services/EventBus.js';
 
 export default class StatsManager {
 
-  constructor(initialStats, initialStage = 0, initialGrowthTime = 0) {
-    this.stats      = { ...initialStats };
-    this.coins      = 0;
-    this.stage      = initialStage;
-    this.growthTime = initialGrowthTime;
-    this._weather   = 'sunny';
-    this._decayTimer = null;
-    this._dead      = false;
+  constructor(initialStats, initialStage = 0, initialGrowthTime = 0, initialStageGrowthTime = 0) {
+    this.stats            = { ...initialStats };
+    this.coins            = 0;
+    this.stage            = initialStage;
+    this.growthTime       = initialGrowthTime;
+    this._stageGrowthTime = initialStageGrowthTime;
+    this._weather         = 'sunny';
+    this._decayTimer      = null;
+    this._dead            = false;
+    this._stopped         = true;
   }
 
   // ── Getters ──────────────────────────────────────────
@@ -82,22 +84,23 @@ export default class StatsManager {
   }
 
   // ── Crecimiento ───────────────────────────────────────
-  // TODO: cuando tengas los sprites de etapas, conecta setStage() en Plant
-  // desde el listener STAGE_UP en GameScene/YardScene
+  // Condición: promedio de stats ≥ 70% → acumula tiempo
+  // 30 segundos acumulados con promedio ≥ 70% → sube etapa
+  // El tiempo NO se resetea si bajan los stats (solo deja de acumular)
   _tickGrowth() {
     if (this.stage >= 2) return;
-    const healthy = ['water', 'sun', 'fertilizer'].every(
-      s => this.stats[s] >= GROWTH.HEALTHY_THRESHOLD
-    );
-    if (!healthy) return;
 
-    this.growthTime += STATS.DECAY_INTERVAL;
-    const nextStage =
-      this.growthTime >= GROWTH.STAGE_2_THRESHOLD ? 2 :
-      this.growthTime >= GROWTH.STAGE_1_THRESHOLD ? 1 : 0;
+    const avg = (['water', 'sun', 'fertilizer']
+      .reduce((sum, s) => sum + this.stats[s], 0)) / 3;
 
-    if (nextStage > this.stage) {
-      this.stage = nextStage;
+    if (avg >= GROWTH.GROWTH_AVG_THRESHOLD) {
+      this._stageGrowthTime += STATS.DECAY_INTERVAL;
+    }
+    // No resetear — el tiempo acumulado persiste aunque bajen los stats
+
+    if (this._stageGrowthTime >= GROWTH.STAGE_TIME_REQUIRED) {
+      this._stageGrowthTime = 0;
+      this.stage++;
       EventBus.emit(EVENTS.STAGE_UP, { stage: this.stage });
     }
   }
@@ -119,10 +122,11 @@ export default class StatsManager {
 
   toJSON() {
     return {
-      stats:      { ...this.stats },
-      coins:      this.coins,
-      stage:      this.stage,
-      growthTime: this.growthTime,
+      stats:            { ...this.stats },
+      coins:            this.coins,
+      stage:            this.stage,
+      growthTime:       this.growthTime,
+      stageGrowthTime:  this._stageGrowthTime,
     };
   }
 }

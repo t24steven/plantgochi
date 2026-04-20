@@ -12,36 +12,44 @@ export default class GameOverScene extends Phaser.Scene {
     const cx = width / 2;
     const cy = height / 2;
 
-    // ── Fade in ────────────────────────────────────────
     this.cameras.main.fadeIn(400, 0, 0, 0);
 
     // ── Fondo ──────────────────────────────────────────
     this.add.image(cx, cy, 'bg_death').setDisplaySize(width, height);
-    this.add.rectangle(cx, cy, width, height, 0x000000, 0.55);
+    // Overlay oscuro para que el texto resalte
+    this.add.rectangle(cx, cy, width, height, 0x000000, 0.45);
 
-    // ── Título con entrada animada ─────────────────────
-    const title = this.add.text(cx, cy - 200, '🌵 Your plant has died...', {
-      fontSize: '42px', color: '#ffffff',
-      fontFamily: 'Arial', fontStyle: 'bold'
+    // ── Panel central ──────────────────────────────────
+    const panelW = 720, panelH = 380;
+    const panel = this.add.graphics().setAlpha(0);
+    panel.fillStyle(0xfdf6e3, 0.95);
+    panel.fillRoundedRect(cx - panelW / 2, cy - panelH / 2 - 20, panelW, panelH, 22);
+    panel.lineStyle(4, 0xc8a96e, 1);
+    panel.strokeRoundedRect(cx - panelW / 2, cy - panelH / 2 - 20, panelW, panelH, 22);
+    this.tweens.add({ targets: panel, alpha: 1, duration: 400, delay: 150 });
+
+    // ── Título ─────────────────────────────────────────
+    const title = this.add.text(cx, cy - 120, 'Your plant has died', {
+      fontSize: '42px', color: '#5a9e2f',
+      fontFamily: 'Arial', fontStyle: 'bold',
+      stroke: '#2d5a18', strokeThickness: 4,
     }).setOrigin(0.5).setAlpha(0);
+    this.tweens.add({ targets: title, alpha: 1, duration: 400, delay: 300 });
 
-    const sub = this.add.text(cx, cy - 130, 'Take better care next time!', {
-      fontSize: '22px', color: '#cccccc', fontFamily: 'Arial'
+    const sub = this.add.text(cx, cy - 45, 'Take better care next time', {
+      fontSize: '24px', color: '#7a5200', fontFamily: 'Arial',
     }).setOrigin(0.5).setAlpha(0);
+    this.tweens.add({ targets: sub, alpha: 1, duration: 400, delay: 420 });
 
-    this.tweens.add({ targets: title, alpha: 1, y: cy - 160, duration: 500, ease: 'Power2', delay: 300 });
-    this.tweens.add({ targets: sub,   alpha: 1, y: cy - 90,  duration: 500, ease: 'Power2', delay: 500 });
+    // ── Botones lado a lado ────────────────────────────
+    const btnSpacing = 160;
+    const btnY = cy + 100;
 
-    // ── Botón: Try Again ───────────────────────────────
-    const btnTry = this.add.text(cx, cy + 60, '🔄  Try Again', {
-      fontSize: '28px', color: '#ffffff', fontFamily: 'Arial',
-      backgroundColor: '#4CAF50', padding: { x: 30, y: 14 }
-    }).setOrigin(0.5).setAlpha(0).setInteractive({ useHandCursor: true });
-
-    this.tweens.add({ targets: btnTry, alpha: 1, duration: 400, delay: 700 });
-
-    btnTry.on('pointerover',  () => btnTry.setStyle({ color: '#FFD700' }));
-    btnTry.on('pointerout',   () => btnTry.setStyle({ color: '#ffffff' }));
+    const btnTry = this.add.image(cx - btnSpacing, btnY, 'btn_try_again')
+      .setDisplaySize(260, 72).setAlpha(0).setInteractive({ useHandCursor: true });
+    this.tweens.add({ targets: btnTry, alpha: 1, duration: 400, delay: 600 });
+    btnTry.on('pointerover',  () => btnTry.setTint(0xdddddd));
+    btnTry.on('pointerout',   () => btnTry.clearTint());
     btnTry.on('pointerdown',  () => {
       this.cameras.main.fadeOut(200, 0, 0, 0);
       this.cameras.main.once('camerafadeoutcomplete', () => {
@@ -50,16 +58,11 @@ export default class GameOverScene extends Phaser.Scene {
       });
     });
 
-    // ── Botón: Main Menu ───────────────────────────────
-    const btnMenu = this.add.text(cx, cy + 150, '🏠  Main Menu', {
-      fontSize: '22px', color: '#cccccc', fontFamily: 'Arial',
-      backgroundColor: '#555555', padding: { x: 24, y: 12 }
-    }).setOrigin(0.5).setAlpha(0).setInteractive({ useHandCursor: true });
-
-    this.tweens.add({ targets: btnMenu, alpha: 1, duration: 400, delay: 900 });
-
-    btnMenu.on('pointerover',  () => btnMenu.setStyle({ color: '#ffffff' }));
-    btnMenu.on('pointerout',   () => btnMenu.setStyle({ color: '#cccccc' }));
+    const btnMenu = this.add.image(cx + btnSpacing, btnY, 'btn_main_menu')
+      .setDisplaySize(260, 72).setAlpha(0).setInteractive({ useHandCursor: true });
+    this.tweens.add({ targets: btnMenu, alpha: 1, duration: 400, delay: 700 });
+    btnMenu.on('pointerover',  () => btnMenu.setTint(0xdddddd));
+    btnMenu.on('pointerout',   () => btnMenu.clearTint());
     btnMenu.on('pointerdown',  () => {
       this.cameras.main.fadeOut(200, 0, 0, 0);
       this.cameras.main.once('camerafadeoutcomplete', () => {

@@ -3,11 +3,13 @@ import { COLORS } from '../constants.js';
 import { EventBus, EVENTS } from '../services/EventBus.js';
 export default class UIElements {
 
-  constructor(scene, statsManager) {
+  constructor(scene, statsManager, fertilizerStock = 0) {
     this._scene  = scene;
     this._stats  = statsManager;
     this._bars   = {};
     this._coinText = null;
+    this._fertText = null;
+    this._fertStock = fertilizerStock;
 
     this.baseWidth  = 1280;
     this.baseHeight = 720;
@@ -25,18 +27,17 @@ export default class UIElements {
   getX(v) { return v * (this.width  / this.baseWidth);  }
   getY(v) { return v * (this.height / this.baseHeight); }
 
-  // ── Monedas ───────────────────────────────────────────
+  // ── Monedas (solo interior — sin fertilizante) ───────
   _createCoinsBar() {
     const s     = this._scene;
-    const pillW = this.getX(220);
-    const pillH = this.getY(65);
-    const x     = this.getX(48) + pillW / 2;
+    const pillW = this.getX(200);
+    const pillH = this.getY(62);
     const y     = this.getY(52);
 
-    s.add.image(x, y, 'ui_coin').setDisplaySize(pillW, pillH).setDepth(5);
-
-    this._coinText = s.add.text(x + this.getX(10), y, `${this._stats.coins}`, {
-      fontSize: '26px', color: '#7a5200',
+    const cx1 = this.getX(48) + pillW / 2;
+    s.add.image(cx1, y, 'ui_coin').setDisplaySize(pillW, pillH).setDepth(5);
+    this._coinText = s.add.text(cx1 + this.getX(28), y, `${this._stats.coins}`, {
+      fontSize: '22px', color: '#7a5200',
       fontStyle: 'bold', fontFamily: 'Arial'
     }).setOrigin(0.5).setDepth(7);
   }
@@ -102,20 +103,28 @@ export default class UIElements {
 
   // ── Botones derecha ───────────────────────────────────
   _createRightButtons() {
-  const size   = this.getX(110);
-  const x      = this.width - this.getX(110);
-  const yWater = this.height - this.getY(170);
-  const yDoor  = this.height - this.getY(60);
+    const size   = this.getX(110);
+    const x      = this.width - this.getX(110);
+    const yWater = this.height - this.getY(170);
+    const yDoor  = this.height - this.getY(60);
 
-  this._makeBtn(x, this.getY(90), 'icon_notebook', size * 0.9,
-    () => EventBus.emit(EVENTS.OPEN_NOTEBOOK));
+    this._makeBtn(x, this.getY(90), 'icon_notebook', size * 0.9,
+      () => EventBus.emit(EVENTS.OPEN_NOTEBOOK));
 
-  this._makeBtn(x, yWater, 'icon_watering', size,
-    () => this._onWater());
+    // Usar el sprite de la regadera equipada si existe
+    let waterIcon = 'icon_watering';
+    try {
+      const raw  = localStorage.getItem('ptg_save');
+      const save = raw ? JSON.parse(raw) : {};
+      waterIcon = save.equippedCan ?? 'icon_watering';
+    } catch(e) {}
 
-  this._makeBtn(x, yDoor, 'icon_door', size,
-    () => EventBus.emit(EVENTS.GO_YARD));
-}
+    this._waterBtn = this._makeBtn(x, yWater, waterIcon, size,
+      () => this._onWater());
+
+    this._makeBtn(x, yDoor, 'icon_door', size,
+      () => EventBus.emit(EVENTS.GO_YARD));
+  }
 
 
   // ── Helper botón ──────────────────────────────────────
@@ -128,6 +137,7 @@ export default class UIElements {
     btn.on('pointerdown', () => {
       callback();
       this._scene.tweens.add({ targets: btn, scaleX: 0.88, scaleY: 0.88, duration: 70, yoyo: true });
+      this._scene.sound?.play('sfx_click', { volume: 0.4 });
     });
     btn.on('pointerover', () => btn.setTint(0xdddddd));
     btn.on('pointerout',  () => btn.clearTint());
@@ -174,11 +184,46 @@ export default class UIElements {
     });
   }
 
+  // ── Actualizar fertilizante stock ────────────────────
+  setFertStock(n) {
+    this._fertStock = n;
+    if (this._fertText) this._fertText.setText(`${n}`);
+  }
+
   // ── Regar ─────────────────────────────────────────────
   _onWater() {
+    if (this._stats.water >= 95) {
+      // Planta ya tiene suficiente agua — mostrar feedback
+      this._showEnoughWater();
+      return;
+    }
     this._stats.add('water', 20);
     EventBus.emit(EVENTS.PLANT_WATERED);
+    this._scene.sound?.play('sfx_click', { volume: 0.5 });
     this.showNotification('💧 Plant watered!');
+  }
+
+  _showEnoughWater() {
+    if (this._enoughWaterImg) return;
+    const s = this._scene;
+    this._enoughWaterImg = s.add.image(this.width / 2, this.getY(200), 'ui_enough_water')
+      .setDisplaySize(this.getX(400), this.getY(120))
+      .setAlpha(0).setDepth(25);
+
+    s.tweens.add({
+      targets: this._enoughWaterImg, alpha: 1, duration: 200,
+      onComplete: () => {
+        s.time.delayedCall(1500, () => {
+          s.tweens.add({
+            targets: this._enoughWaterImg, alpha: 0, duration: 200,
+            onComplete: () => {
+              this._enoughWaterImg?.destroy();
+              this._enoughWaterImg = null;
+            }
+          });
+        });
+      }
+    });
   }
 
   // ── Escuchar cambios ──────────────────────────────────
@@ -194,11 +239,12 @@ export default class UIElements {
 
     this._onCoinsUpdated = ({ amount, source }) => {
       if (this._destroyed || !this._coinText) return;
-      if (source !== this._stats) return; // ignorar eventos de otros StatsManagers
+      if (source !== this._stats) return;
       this._coinText.setText(`${amount}`);
       this._scene.tweens.add({
         targets: this._coinText, scaleX: 1.3, scaleY: 1.3, duration: 120, yoyo: true
       });
+      this._scene.sound?.play('sfx_coins', { volume: 0.4 });
     };
 
     EventBus.on(EVENTS.STAT_CHANGED,  this._onStatChanged,  this);
@@ -209,7 +255,10 @@ export default class UIElements {
     this._destroyed = true;
     EventBus.off(EVENTS.STAT_CHANGED,  this._onStatChanged,  this);
     EventBus.off(EVENTS.COINS_UPDATED, this._onCoinsUpdated, this);
+    this._enoughWaterImg?.destroy();
+    this._enoughWaterImg = null;
     this._bars      = {};
     this._coinText  = null;
+    this._fertText  = null;
   }
 }

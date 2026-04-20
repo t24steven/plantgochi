@@ -102,12 +102,9 @@ export default class Plant extends Phaser.GameObjects.Container {
     this.addAt(this._pot, 0);
   }
 
-  // ── Can ───────────────────────────────────────────────
+  // ── Can — solo cambia el botón de regar, no aparece en la planta ─
   setCan(canKey) {
-    if (this._can) this._can.destroy();
-    if (!canKey) { this._can = null; return; }
-    this._can = this.scene.add.image(150, 80, canKey).setDisplaySize(70, 70);
-    this.add(this._can);
+    this._canKey = canKey ?? null; // guardado para que UIElements lo use en el botón
   }
 
   // ── Etapa de crecimiento ──────────────────────────────
@@ -115,6 +112,9 @@ export default class Plant extends Phaser.GameObjects.Container {
   //   this._sprite.setTexture(`${this._data.id}_stage${stage}`)
   //   + animación de celebración (partículas, escala bounce)
   setStage(stage) {
+    // Guard: si la planta fue destruida, no hacer nada
+    if (!this.scene || !this._sprite || !this._sprite.scene) return;
+
     this._stage = stage;
     const stageTextures = {
       0: `${this._data.id}_semilla`,
@@ -127,12 +127,22 @@ export default class Plant extends Phaser.GameObjects.Container {
 
     this._sprite.setTexture(tex).setDisplaySize(size, size);
 
+    // Ajustar posición de cara y hat según nuevo tamaño
+    const faceY = size === 120 ? -30 : size === 180 ? -45 : -60;
+    if (this._eyeL)  { this._eyeL.setPosition(-38 * (size/240), faceY); }
+    if (this._eyeR)  { this._eyeR.setPosition( 38 * (size/240), faceY); }
+    if (this._mouth) { this._mouth.setPosition(0, faceY + 40); }
+    if (this._hat)   { this._hat.setPosition(0, faceY - 80); }
+
+    // Animación de celebración — bounce sin interferir con idle
     this.scene.tweens.add({
-      targets:  this,
-      scaleX:   1.15, scaleY: 1.15,
+      targets:  this._sprite,
+      scaleX:   1.2, scaleY: 1.2,
       duration: 200, yoyo: true, repeat: 2,
       ease:     'Sine.easeInOut'
     });
+
+    try { this.scene.sound?.play('sfx_coins', { volume: 0.6 }); } catch(e) {}
   }
   playHappyEffect() {
     const heart = this.scene.add.image(this.x + 60, this.y - 160, 'fx_heart')
@@ -173,9 +183,10 @@ export default class Plant extends Phaser.GameObjects.Container {
 
   // ── Idle animation ────────────────────────────────────
   _startIdle() {
-    this.scene.tweens.add({
+    const baseY = this.y;
+    this._idleTween = this.scene.tweens.add({
       targets:  this,
-      y:        this.y - 8,
+      y:        baseY - 8,
       duration: 1800,
       yoyo:     true,
       repeat:   -1,
@@ -185,27 +196,38 @@ export default class Plant extends Phaser.GameObjects.Container {
 
   // ── Listeners de EventBus ─────────────────────────────
   _onStatChanged({ stat, value, source }) {
+    if (this._destroyed) return;
     if (this._statsManager && source !== this._statsManager) return;
     if (this._state === 'dead') return;
 
-    if (value <= 20) {
+    // Evaluar el estado global basado en TODOS los stats, no solo el que cambió
+    const stats = this._statsManager?.stats ?? {};
+    const minVal = Math.min(
+      stats.water      ?? value,
+      stats.sun        ?? value,
+      stats.fertilizer ?? value
+    );
+
+    if (minVal <= 20) {
       this.setState('sad');
-    } else if (value >= 80) {
+    } else if (minVal >= 80 && this._state !== 'happy') {
+      // Solo poner happy si todos están bien — y solo una vez
       this.setState('happy');
       this.scene.time.delayedCall(2000, () => {
         if (this._state !== 'dead') this.setState('default');
       });
-    } else if (this._state === 'sad') {
-      // stat volvió a rango normal — revertir sad a default
+    } else if (this._state === 'sad' && minVal > 20) {
       this.setState('default');
     }
   }
 
   _onWatered() {
+    if (this._destroyed) return;
     this.playWaterEffect();
   }
 
   _onDeath() {
+    if (this._destroyed) return;
     this._state = 'dead';
     this._stopIdle();
     this._updateFace('dead');
@@ -220,11 +242,18 @@ export default class Plant extends Phaser.GameObjects.Container {
   }
 
   _stopIdle() {
+    if (this._idleTween) {
+      this._idleTween.stop();
+      this._idleTween = null;
+    }
     this.scene.tweens.killTweensOf(this);
   }
 
   // ── Limpieza ──────────────────────────────────────────
   destroy() {
+    // Marcar como destruido para que los listeners no actúen
+    this._destroyed = true;
+    this._sprite    = null;
     EventBus.off(EVENTS.STAT_CHANGED,  this._onStatChanged, this);
     EventBus.off(EVENTS.PLANT_DIED,    this._onDeath,       this);
     EventBus.off(EVENTS.PLANT_WATERED, this._onWatered,     this);
