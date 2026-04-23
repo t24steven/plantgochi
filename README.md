@@ -95,7 +95,7 @@ En el patio caen soles cada **1.5 a 3 segundos** (cuando no está nublado ni nev
 
 ## 🎯 Minijuegos
 
-Los minijuegos son la única forma de ganar **monedas** para comprar cosméticos.
+Los minijuegos son la única forma de ganar **monedas** para comprar accesorios.
 
 ### 🌿 Catch the Fertilizer
 

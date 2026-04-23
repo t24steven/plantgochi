@@ -33,7 +33,21 @@ export default class MenuScene extends Phaser.Scene {
 
     btn.on('pointerover', () => btn.setScale(0.85));
     btn.on('pointerout',  () => btn.setScale(0.8));
-    btn.on('pointerdown', () => this._transition(() => this._showPrivacy()));
+    btn.on('pointerdown', () => {
+      this._ensureBgm();
+      this._transition(() => this._showPrivacy());
+    });
+  }
+
+  // ── Inicia el BGM si no está corriendo ya ─────────────
+  _ensureBgm() {
+    const existing = this.sound.get('bgm');
+    if (existing) {
+      if (!existing.isPlaying) existing.play();
+      return;
+    }
+    const bgm = this.sound.add('bgm', { loop: true, volume: 0.15 });
+    bgm.play().catch?.(() => {});
   }
 
   // ── STEP 1: Privacy Policy ────────────────────────────
@@ -42,9 +56,14 @@ export default class MenuScene extends Phaser.Scene {
     this.add.image(width / 2, height / 2, 'bg_lobby').setDisplaySize(width, height);
     this.add.image(width / 2, height / 2 - 20, 'icon_privacy').setScale(0.8).setOrigin(0.5);
 
-    this._addAudioBtn();
-    // Reproducir voz de privacy policy
-    this.time.delayedCall(300, () => this.sound.play('sfx_pp_voice', { volume: 0.8 }));
+    // Reproducir voz y guardar instancia para poder pausarla
+    let voiceSound = null;
+    this.time.delayedCall(300, () => {
+      voiceSound = this.sound.add('sfx_pp_voice', { volume: 0.8 });
+      voiceSound.play();
+    });
+
+    this._addVoiceBtn(() => voiceSound);
 
     const btn = this.add.image(width / 2, height * 0.82, 'btn_next')
       .setScale(0.8).setInteractive({ useHandCursor: true });
@@ -52,9 +71,7 @@ export default class MenuScene extends Phaser.Scene {
     btn.on('pointerover', () => btn.setScale(0.85));
     btn.on('pointerout',  () => btn.setScale(0.8));
     btn.on('pointerdown', () => {
-      // Solo parar voces, no el BGM
-      const ppVoice = this.sound.get('sfx_pp_voice');
-      if (ppVoice?.isPlaying) ppVoice.stop();
+      if (voiceSound?.isPlaying) voiceSound.stop();
       this._transition(() => this._showHowToPlay());
     });
   }
@@ -65,9 +82,14 @@ export default class MenuScene extends Phaser.Scene {
     this.add.image(width / 2, height / 2, 'bg_lobby').setDisplaySize(width, height);
     this.add.image(width / 2, height / 2 - 20, 'icon_htp').setScale(0.8).setOrigin(0.5);
 
-    this._addAudioBtn();
-    // Reproducir voz de how to play
-    this.time.delayedCall(300, () => this.sound.play('sfx_htp_voice', { volume: 0.8 }));
+    // Reproducir voz y guardar instancia para poder pausarla
+    let voiceSound = null;
+    this.time.delayedCall(300, () => {
+      voiceSound = this.sound.add('sfx_htp_voice', { volume: 0.8 });
+      voiceSound.play();
+    });
+
+    this._addVoiceBtn(() => voiceSound);
 
     const btn = this.add.image(width / 2, height * 0.82, 'btn_next')
       .setScale(0.8).setInteractive({ useHandCursor: true });
@@ -75,9 +97,7 @@ export default class MenuScene extends Phaser.Scene {
     btn.on('pointerover', () => btn.setScale(0.85));
     btn.on('pointerout',  () => btn.setScale(0.8));
     btn.on('pointerdown', () => {
-      // Solo parar voces, no el BGM
-      const htpVoice = this.sound.get('sfx_htp_voice');
-      if (htpVoice?.isPlaying) htpVoice.stop();
+      if (voiceSound?.isPlaying) voiceSound.stop();
       this.cameras.main.fadeOut(200, 0, 0, 0);
       this.cameras.main.once('camerafadeoutcomplete', () => {
         if (SaveService.hasSave()) {
@@ -89,37 +109,42 @@ export default class MenuScene extends Phaser.Scene {
     });
   }
 
-  // ── Botón de audio (pause/resume) ────────────────────
-  _addAudioBtn() {
+  // ── Botón de audio: pausa/reanuda la voz de instrucciones
+  // getVoice: función que retorna la instancia actual del sonido de voz
+  _addVoiceBtn(getVoice) {
     const { width, height } = this.cameras.main;
+    let _paused = false;
+
     const btn = this.add.image(width - 45, height - 45, 'btn_voice')
-      .setDisplaySize(70, 70).setInteractive({ useHandCursor: true });
+      .setDisplaySize(70, 70)
+      .setDepth(50)
+      .setInteractive({ useHandCursor: true });
 
-    const isMuted = () => {
-      const bgm = this.sound.get('bgm');
-      return !bgm || !bgm.isPlaying;
-    };
-
-    btn.setAlpha(isMuted() ? 0.4 : 1);
+    const refresh = () => btn.setAlpha(_paused ? 0.4 : 1);
 
     btn.on('pointerdown', () => {
-      // Parar voces activas
-      ['sfx_pp_voice', 'sfx_htp_voice'].forEach(k => {
-        const s = this.sound.get(k);
-        if (s && s.isPlaying) s.stop();
-      });
+      const voice = getVoice();
+      if (!voice) return;
 
-      const bgm = this.sound.get('bgm');
-      if (!bgm) return;
-
-      if (bgm.isPlaying) {
-        bgm.pause();
-        btn.setAlpha(0.4);
+      if (!_paused) {
+        voice.pause();
+        _paused = true;
       } else {
-        // Phaser: resume() si fue pausado, play() si nunca arrancó o fue detenido
-        try { bgm.resume(); } catch(e) { bgm.play(); }
-        btn.setAlpha(1);
+        try { voice.resume(); } catch(e) {}
+        _paused = false;
       }
+      refresh();
+    });
+
+    btn.on('pointerover', () => btn.setTint(0xdddddd));
+    btn.on('pointerout',  () => btn.clearTint());
+  }
+
+  shutdown() {
+    // Parar cualquier voz activa al salir de la escena
+    ['sfx_pp_voice', 'sfx_htp_voice'].forEach(k => {
+      const s = this.sound.get(k);
+      if (s?.isPlaying) s.stop();
     });
   }
 }

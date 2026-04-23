@@ -9,6 +9,9 @@ import MinigamesMenuScene  from './scenes/MinigamesMenuScene.js';
 import FertilizerScene     from './scenes/minigames/FertilizerScene.js';
 import BugDefenseScene     from './scenes/minigames/BugDefenseScene.js';
 
+// ── Cheat console (solo desarrollo) ──────────────────────
+import './debug/cheatConsole.js';
+
 const config = {
   type: Phaser.AUTO,
   parent: 'game-container',

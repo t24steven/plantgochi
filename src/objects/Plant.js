@@ -10,39 +10,29 @@ export default class Plant extends Phaser.GameObjects.Container {
     this._data          = plantData;
     this._state         = 'default';
     this._stage         = stage;
-    this._statsManager  = statsManager; // para filtrar eventos
+    this._statsManager  = statsManager;
     this._hat           = null;
     this._pot           = null;
     this._can           = null;
 
-    // ── Sprite según etapa inicial ────────────────────
-    const stageTextures = {
-      0: `${plantData.id}_semilla`,
-      1: `${plantData.id}_brote`,
-      2: `${plantData.id}_default`,
-    };
-    const stageSizes = {
-      0: 120,  // semilla — pequeña
-      1: 180,  // brote — mediana
-      2: 240,  // default — tamaño completo
-    };
-    const initialTex  = stageTextures[stage] ?? `${plantData.id}_default`;
-    const initialSize = stageSizes[stage]    ?? 240;
-
     // ── Maceta base ───────────────────────────────────
-    this._pot = scene.add.image(0, 80, 'pot_base').setDisplaySize(160, 130);
+    // Maceta centrada en la parte baja del container
+    this._pot = scene.add.image(0, Plant.POT_Y, 'pot_base')
+      .setDisplaySize(Plant.POT_W, Plant.POT_H);
     this.add(this._pot);
 
-    // ── Sprite base ───────────────────────────────────
-    this._sprite = scene.add.image(0, -50, initialTex).setDisplaySize(initialSize, initialSize);
+    // ── Sprite según etapa inicial ────────────────────
+    const { tex, w, h, spriteY } = Plant.stageLayout(plantData.id, stage);
+    this._sprite = scene.add.image(0, spriteY, tex).setDisplaySize(w, h);
     this.add(this._sprite);
 
     // ── Cara: ojos, boca, mejillas ────────────────────
-    this._eyeL  = scene.add.image(-38, -60, 'face_eye_left')  .setDisplaySize(38, 38);
-    this._eyeR  = scene.add.image( 38, -60, 'face_eye_right') .setDisplaySize(38, 38);
-    this._mouth = scene.add.image(  0, -20, 'face_mouth')     .setDisplaySize(40, 28);
-    this._blushL = scene.add.image(-55, -35, 'face_blush_left') .setDisplaySize(36, 22).setAlpha(0);
-    this._blushR = scene.add.image( 55, -35, 'face_blush_right').setDisplaySize(36, 22).setAlpha(0);
+    const face = Plant.faceLayout(stage);
+    this._eyeL   = scene.add.image(face.eyeLX,   face.eyeY,   'face_eye_left')   .setDisplaySize(face.eyeW,   face.eyeW);
+    this._eyeR   = scene.add.image(face.eyeRX,   face.eyeY,   'face_eye_right')  .setDisplaySize(face.eyeW,   face.eyeW);
+    this._mouth  = scene.add.image(0,             face.mouthY, 'face_mouth')      .setDisplaySize(face.mouthW, face.mouthH);
+    this._blushL = scene.add.image(face.blushLX,  face.blushY, 'face_blush_left') .setDisplaySize(face.blushW, face.blushH).setAlpha(0);
+    this._blushR = scene.add.image(face.blushRX,  face.blushY, 'face_blush_right').setDisplaySize(face.blushW, face.blushH).setAlpha(0);
     this.add(this._eyeL);
     this.add(this._eyeR);
     this.add(this._mouth);
@@ -90,7 +80,8 @@ export default class Plant extends Phaser.GameObjects.Container {
   setHat(hatKey) {
     if (this._hat) this._hat.destroy();
     if (!hatKey) { this._hat = null; return; }
-    this._hat = this.scene.add.image(0, -140, hatKey).setDisplaySize(120, 90);
+    const face = Plant.faceLayout(this._stage);
+    this._hat = this.scene.add.image(0, face.hatY, hatKey).setDisplaySize(Plant.HAT_W, Plant.HAT_H);
     this.add(this._hat);
   }
 
@@ -98,50 +89,37 @@ export default class Plant extends Phaser.GameObjects.Container {
   setPot(potKey) {
     if (this._pot) this._pot.destroy();
     const key = potKey ?? 'pot_base';
-    this._pot = this.scene.add.image(0, 80, key).setDisplaySize(160, 130);
+    this._pot = this.scene.add.image(0, Plant.POT_Y, key).setDisplaySize(Plant.POT_W, Plant.POT_H);
     this.addAt(this._pot, 0);
   }
 
   // ── Can — solo cambia el botón de regar, no aparece en la planta ─
   setCan(canKey) {
-    this._canKey = canKey ?? null; // guardado para que UIElements lo use en el botón
+    this._canKey = canKey ?? null;
   }
 
   // ── Etapa de crecimiento ──────────────────────────────
-  // TODO: cuando tengas los sprites, reemplaza el console.log por:
-  //   this._sprite.setTexture(`${this._data.id}_stage${stage}`)
-  //   + animación de celebración (partículas, escala bounce)
   setStage(stage) {
-    // Guard: si la planta fue destruida, no hacer nada
     if (!this.scene || !this._sprite || !this._sprite.scene) return;
 
     this._stage = stage;
-    const stageTextures = {
-      0: `${this._data.id}_semilla`,
-      1: `${this._data.id}_brote`,
-      2: `${this._data.id}_default`,
-    };
-    const stageSizes = { 0: 120, 1: 180, 2: 240 };
-    const tex  = stageTextures[stage] ?? `${this._data.id}_default`;
-    const size = stageSizes[stage]    ?? 240;
+    const { tex, w, h, spriteY } = Plant.stageLayout(this._data.id, stage);
+    this._sprite.setTexture(tex).setDisplaySize(w, h).setPosition(0, spriteY);
 
-    this._sprite.setTexture(tex).setDisplaySize(size, size);
+    // Reposicionar cara
+    const face = Plant.faceLayout(stage);
+    if (this._eyeL)   this._eyeL  .setPosition(face.eyeLX,  face.eyeY) .setDisplaySize(face.eyeW,   face.eyeW);
+    if (this._eyeR)   this._eyeR  .setPosition(face.eyeRX,  face.eyeY) .setDisplaySize(face.eyeW,   face.eyeW);
+    if (this._mouth)  this._mouth .setPosition(0,            face.mouthY).setDisplaySize(face.mouthW, face.mouthH);
+    if (this._blushL) this._blushL.setPosition(face.blushLX, face.blushY).setDisplaySize(face.blushW, face.blushH);
+    if (this._blushR) this._blushR.setPosition(face.blushRX, face.blushY).setDisplaySize(face.blushW, face.blushH);
+    if (this._hat)    this._hat   .setPosition(0,            face.hatY);
 
-    // Ajustar posición de cara y hat según nuevo tamaño
-    const faceY = size === 120 ? -30 : size === 180 ? -45 : -60;
-    if (this._eyeL)  { this._eyeL.setPosition(-38 * (size/240), faceY); }
-    if (this._eyeR)  { this._eyeR.setPosition( 38 * (size/240), faceY); }
-    if (this._mouth) { this._mouth.setPosition(0, faceY + 40); }
-    if (this._hat)   { this._hat.setPosition(0, faceY - 80); }
-
-    // Animación de celebración — bounce sin interferir con idle
+    // Animación de celebración
     this.scene.tweens.add({
-      targets:  this._sprite,
-      scaleX:   1.2, scaleY: 1.2,
-      duration: 200, yoyo: true, repeat: 2,
-      ease:     'Sine.easeInOut'
+      targets: this._sprite, scaleX: 1.2, scaleY: 1.2,
+      duration: 200, yoyo: true, repeat: 2, ease: 'Sine.easeInOut'
     });
-
     try { this.scene.sound?.play('sfx_coins', { volume: 0.6 }); } catch(e) {}
   }
   playHappyEffect() {
@@ -260,3 +238,89 @@ export default class Plant extends Phaser.GameObjects.Container {
     super.destroy();
   }
 }
+
+// ── Layout estático — basado en dimensiones reales de los assets ──────────────
+//
+// Container origin = centro de la planta completa (planta + maceta)
+// La maceta siempre en POT_Y, la planta encima tocando el borde de la maceta.
+//
+// Maceta (pot_base 765×700, pot1 399×374, pot2 393×315, pot3 413×305)
+// Mostramos todas a 150×120 para consistencia visual.
+Plant.POT_W = 150;
+Plant.POT_H = 120;
+Plant.POT_Y = 70;   // centro de la maceta respecto al container
+
+// Sombrero
+Plant.HAT_W = 110;
+Plant.HAT_H = 80;
+
+/**
+ * Devuelve { tex, w, h, spriteY } para cada etapa.
+ * spriteY = posición Y del sprite respecto al container,
+ * calculada para que la base del sprite quede justo encima de la maceta.
+ *
+ * Semilla (496×724): ratio 0.685 → mostramos 80×117, muy pequeña
+ * Brote   (~200-400px): mostramos 130×130
+ * Default (~340-384px): mostramos 200×200
+ *
+ * La maceta tiene su centro en POT_Y=70, su borde superior está en:
+ *   POT_Y - POT_H/2 = 70 - 60 = 10
+ * El sprite debe tener su base (centro + h/2) en ese punto:
+ *   spriteY + h/2 = 10  →  spriteY = 10 - h/2
+ */
+Plant.stageLayout = function(plantId, stage) {
+  const potTop = Plant.POT_Y - Plant.POT_H / 2; // = 10
+
+  if (stage === 0) {
+    // Semilla: pequeña, casi dentro de la maceta
+    const w = 80, h = 117;
+    return { tex: `${plantId}_semilla`, w, h, spriteY: potTop - h / 2 + 20 };
+  }
+  if (stage === 1) {
+    // Brote: mediano
+    const w = 140, h = 140;
+    return { tex: `${plantId}_brote`, w, h, spriteY: potTop - h / 2 };
+  }
+  // stage 2: adulta
+  const w = 210, h = 210;
+  return { tex: `${plantId}_default`, w, h, spriteY: potTop - h / 2 };
+};
+
+/**
+ * Devuelve las posiciones de los elementos de la cara para cada etapa.
+ * Todas las coordenadas son relativas al container.
+ */
+Plant.faceLayout = function(stage) {
+  // Centro visual de la planta (donde está la cara)
+  // = spriteY del stage correspondiente, ajustado al tercio superior del sprite
+  const layouts = {
+    0: { centerY: -55, scale: 0.55 },  // semilla — cara pequeña
+    1: { centerY: -80, scale: 0.75 },  // brote
+    2: { centerY: -95, scale: 1.0  },  // adulta
+  };
+  const { centerY, scale } = layouts[stage] ?? layouts[2];
+
+  const eyeW   = Math.round(34 * scale);
+  const eyeOff = Math.round(32 * scale);
+  const mouthW = Math.round(38 * scale);
+  const mouthH = Math.round(26 * scale);
+  const blushW = Math.round(30 * scale);
+  const blushH = Math.round(18 * scale);
+  const blushOff = Math.round(48 * scale);
+
+  return {
+    eyeLX:  -eyeOff,
+    eyeRX:   eyeOff,
+    eyeY:    centerY - Math.round(12 * scale),
+    eyeW,
+    mouthY:  centerY + Math.round(14 * scale),
+    mouthW,
+    mouthH,
+    blushLX: -blushOff,
+    blushRX:  blushOff,
+    blushY:   centerY + Math.round(2 * scale),
+    blushW,
+    blushH,
+    hatY:    centerY - Math.round(60 * scale),
+  };
+};

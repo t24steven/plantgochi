@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { SCENES } from '../constants.js';
 import { SaveService } from '../services/SaveService.js';
+import { addAudioButton } from '../utils/AudioButton.js';
 
 export default class GameOverScene extends Phaser.Scene {
   constructor() {
@@ -13,6 +14,9 @@ export default class GameOverScene extends Phaser.Scene {
     const cy = height / 2;
 
     this.cameras.main.fadeIn(400, 0, 0, 0);
+
+    // ── Botón de audio ─────────────────────────────────
+    addAudioButton(this);
 
     // ── Fondo ──────────────────────────────────────────
     this.add.image(cx, cy, 'bg_death').setDisplaySize(width, height);

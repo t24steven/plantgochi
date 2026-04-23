@@ -5,6 +5,7 @@ import { GameState } from '../services/GameState.js';
 import { EventBus, EVENTS } from '../services/EventBus.js';
 import Plant from '../objects/Plant.js';
 import StatsManager from '../objects/StatsManager.js';
+import NotebookPanel from '../objects/panels/NotebookPanel.js';
 
 export default class YardScene extends Phaser.Scene {
   constructor() {
@@ -12,19 +13,44 @@ export default class YardScene extends Phaser.Scene {
   }
 
   init(data) {
+    this._pendingReward = data?.reward ?? null;
+
+    // Preferir GameState en memoria (ya sincronizado por GameScene._save())
+    if (GameState.plantId) {
+      this._plantData     = PLANTS.find(p => p.id === GameState.plantId) ?? PLANTS[0];
+      this._weather       = GameState.weather       ?? 'sunny';
+      this._weatherEndsAt = GameState.weatherEndsAt ?? (Date.now() + 300000);
+      this._saveData      = {
+        plantId:         GameState.plantId,
+        coins:           GameState.coins,
+        stats:           { ...GameState.stats },
+        stage:           GameState.stage,
+        growthTime:      GameState.growthTime,
+        stageGrowthTime: GameState.stageGrowthTime ?? 0,
+        fertilizerStock: GameState.fertilizerStock,
+        weather:         this._weather,
+        weatherEndsAt:   this._weatherEndsAt,
+        ownedItems:      GameState.ownedItems  ?? [],
+        equippedHat:     GameState.equippedHat ?? null,
+        equippedPot:     GameState.equippedPot ?? null,
+        equippedCan:     GameState.equippedCan ?? null,
+      };
+      return;
+    }
+
+    // Fallback: leer disco
     let save = null;
     try {
       const raw = localStorage.getItem('ptg_save');
       save = raw ? JSON.parse(raw) : null;
     } catch(e) { save = null; }
     if (!save) return;
-    const plantData = PLANTS.find(p => p.id === save.plantId) ?? PLANTS[0];
-    this._plantData     = plantData;
+
+    this._plantData     = PLANTS.find(p => p.id === save.plantId) ?? PLANTS[0];
     this._saveData      = JSON.parse(JSON.stringify(save));
-    this._weather       = save.weather ?? 'sunny';
+    this._weather       = save.weather       ?? 'sunny';
     this._weatherEndsAt = save.weatherEndsAt ?? (Date.now() + 300000);
-    this._pendingReward = data?.reward ?? null;
-    GameState.load(save); // sincronizar GameState al entrar al yard
+    GameState.load(save);
   }
 
   create() {
@@ -64,7 +90,8 @@ export default class YardScene extends Phaser.Scene {
     this._createTopBar();
     this._createStatsUI();
     this._createBottomButtons();
-    this._createMinigamesNotebook();
+    this._createNotebookBtn();
+    this._notebookPanel = new NotebookPanel(this, this._plantData);
 
     // ── Aplicar recompensa ahora que la UI existe ──────
     if (this._pendingRewardData) {
@@ -395,8 +422,8 @@ export default class YardScene extends Phaser.Scene {
 }
 
 
-  // ── Libreta de minijuegos (top right) ─────────────────
-  _createMinigamesNotebook() {
+  // ── Botón libreta (top right) → info de la planta ────
+  _createNotebookBtn() {
     const { width } = this.cameras.main;
     const x = width - this.gx(80);
     const y = this.gy(130);
@@ -410,65 +437,8 @@ export default class YardScene extends Phaser.Scene {
     btn.on('pointerout',  () => btn.clearTint());
     btn.on('pointerdown', () => {
       this.tweens.add({ targets: btn, scaleX: 0.88, scaleY: 0.88, duration: 70, yoyo: true });
-      this._showMinigamesInfo();
+      this._notebookPanel?.show();
     });
-  }
-
-  // ── Panel info minijuegos ─────────────────────────────
-  _showMinigamesInfo() {
-    if (this._infoPanel) return;
-
-    const { width, height } = this.cameras.main;
-    const cx = width / 2;
-    const cy = height / 2;
-
-    this._infoPanel = this.add.container(0, 0).setDepth(20);
-
-    const overlay = this.add.rectangle(cx, cy, width, height, 0x000000, 0.6);
-
-    // Mostrar info de fertilizante primero, con botón para cambiar a bugs
-    let currentInfo = 0;
-    const infoKeys = ['mg_info_fertilizer', 'mg_info_bugs'];
-
-    const infoImg = this.add.image(cx, cy - 20, infoKeys[0])
-      .setDisplaySize(900, 524);
-
-    // Botón cerrar
-    const btnClose = this.add.image(cx + 440, cy - 280, 'btn_back')
-      .setDisplaySize(80, 40).setInteractive({ useHandCursor: true });
-    btnClose.on('pointerdown', () => {
-      this._infoPanel.destroy();
-      this._infoPanel = null;
-    });
-
-    // Botón siguiente (alternar entre los dos minijuegos)
-    const btnNext = this.add.image(cx + 440, cy + 240, 'btn_next')
-      .setDisplaySize(100, 50).setInteractive({ useHandCursor: true });
-    btnNext.on('pointerdown', () => {
-      currentInfo = (currentInfo + 1) % infoKeys.length;
-      infoImg.setTexture(infoKeys[currentInfo]);
-    });
-
-    // Botón ir a minijuegos
-    const btnPlay = this.add.image(cx, cy + 290, 'btn_select')
-      .setDisplaySize(200, 60).setInteractive({ useHandCursor: true });
-    const btnPlayTxt = this.add.text(cx, cy + 290, 'Play!', {
-      fontSize: '22px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold'
-    }).setOrigin(0.5);
-
-    btnPlay.on('pointerover',  () => btnPlay.setTint(0xffddaa));
-    btnPlay.on('pointerout',   () => btnPlay.clearTint());
-    btnPlay.on('pointerdown', () => {
-      this._infoPanel.destroy();
-      this._infoPanel = null;
-      this._saveCurrentState();
-      this.scene.start(SCENES.MINIGAMES_MENU);
-    });
-
-    this._infoPanel.add([overlay, infoImg, btnClose, btnNext, btnPlay, btnPlayTxt]);
-
-    this._infoPanel.setAlpha(0);
-    this.tweens.add({ targets: this._infoPanel, alpha: 1, duration: 200 });
   }
 
   // ── Botones abajo ─────────────────────────────────────
@@ -592,7 +562,7 @@ export default class YardScene extends Phaser.Scene {
   }
 
   shutdown() {
-    this.statsManager?.stopDecay();  // parar decay PRIMERO
+    this.statsManager?.stopDecay();
     this._saveCurrentState();
     this._weatherTimer?.remove();
     this._sunTimer?.remove();
@@ -601,6 +571,7 @@ export default class YardScene extends Phaser.Scene {
     this._weatherOverlay?.destroy();
     this._weatherLabel?.destroy();
     this._infoPanel?.destroy();
+    this._notebookPanel?.hide();
     this.plant?.destroy();
     EventBus.off(EVENTS.STAGE_UP,      this._onStageUp,      this);
     EventBus.off(EVENTS.PLANT_DIED,    this._onPlantDied,    this);

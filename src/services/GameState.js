@@ -10,12 +10,13 @@
 export const GameState = {
 
   // ── Estado en memoria (se sincroniza con SaveService) ──
-  coins:          0,
+  coins:           0,
   fertilizerStock: 0,
-  stats:          { water: 100, sun: 100, fertilizer: 100, happiness: 100 },
-  stage:          0,
-  growthTime:     0,
-  plantId:        null,
+  stats:           { water: 100, sun: 100, fertilizer: 100, happiness: 100 },
+  stage:           0,
+  growthTime:      0,
+  stageGrowthTime: 0,
+  plantId:         null,
   ownedItems:     [],
   equippedHat:    null,
   equippedPot:    null,
@@ -31,6 +32,7 @@ export const GameState = {
     this.stats           = { ...(save.stats ?? { water: 100, sun: 100, fertilizer: 100, happiness: 100 }) };
     this.stage           = save.stage           ?? 0;
     this.growthTime      = save.growthTime      ?? 0;
+    this.stageGrowthTime = save.stageGrowthTime ?? 0;
     this.plantId         = save.plantId         ?? null;
     this.ownedItems      = save.ownedItems       ?? [];
     this.equippedHat     = save.equippedHat      ?? null;
@@ -48,6 +50,7 @@ export const GameState = {
       stats:           { ...this.stats },
       stage:           this.stage,
       growthTime:      this.growthTime,
+      stageGrowthTime: this.stageGrowthTime,
       plantId:         this.plantId,
       ownedItems:      [...this.ownedItems],
       equippedHat:     this.equippedHat,
@@ -65,6 +68,7 @@ export const GameState = {
     this.stats           = { water: 100, sun: 100, fertilizer: 100, happiness: 100 };
     this.stage           = 0;
     this.growthTime      = 0;
+    this.stageGrowthTime = 0;
     this.plantId         = null;
     this.ownedItems      = [];
     this.equippedHat     = null;

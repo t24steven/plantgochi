@@ -26,7 +26,29 @@ export default class GameScene extends Phaser.Scene {
       const save = data.gameState;
       this._plantData = data.plant ?? PLANTS.find(p => p.id === save.plantId) ?? PLANTS[0];
       this._saveData  = JSON.parse(JSON.stringify(save));
-      GameState.load(save); // sincronizar GameState
+      GameState.load(save);
+      return;
+    }
+
+    // Preferir GameState en memoria (ya sincronizado por la escena anterior)
+    // Solo leer disco si GameState no tiene datos válidos
+    if (GameState.plantId) {
+      this._plantData = PLANTS.find(p => p.id === GameState.plantId) ?? PLANTS[0];
+      this._saveData  = {
+        plantId:         GameState.plantId,
+        coins:           GameState.coins,
+        stats:           { ...GameState.stats },
+        stage:           GameState.stage,
+        growthTime:      GameState.growthTime,
+        stageGrowthTime: GameState.stageGrowthTime ?? 0,
+        fertilizerStock: GameState.fertilizerStock,
+        weather:         GameState.weather         ?? 'sunny',
+        weatherEndsAt:   GameState.weatherEndsAt   ?? (Date.now() + 300000),
+        ownedItems:      GameState.ownedItems       ?? [],
+        equippedHat:     GameState.equippedHat      ?? null,
+        equippedPot:     GameState.equippedPot      ?? null,
+        equippedCan:     GameState.equippedCan      ?? null,
+      };
       return;
     }
 
@@ -36,7 +58,7 @@ export default class GameScene extends Phaser.Scene {
       const save = JSON.parse(raw);
       this._plantData = PLANTS.find(p => p.id === save.plantId) ?? PLANTS[0];
       this._saveData  = save;
-      GameState.load(save); // sincronizar GameState
+      GameState.load(save);
     } catch(e) {
       this._plantData = PLANTS[0];
       this._saveData  = SaveService.newGame(PLANTS[0]);
@@ -83,8 +105,6 @@ export default class GameScene extends Phaser.Scene {
     this._registerEvents();
 
     // ── Audio ──────────────────────────────────────────
-    // El sonido se maneja globalmente — solo arranca una vez
-    // y sobrevive cambios de escena gracias al check de 'bgm'
     const existing = this.sound.get('bgm');
     if (!existing) {
       const bgm = this.sound.add('bgm', { loop: true, volume: 0.15 });
@@ -128,7 +148,6 @@ export default class GameScene extends Phaser.Scene {
   _save() {
     if (!this.statsManager || !this._saveData) return;
 
-    // Sincronizar GameState con el estado actual del statsManager
     GameState.coins           = this.statsManager.coins;
     GameState.stats           = { ...this.statsManager.stats };
     GameState.stage           = this.statsManager.stage;
@@ -142,7 +161,7 @@ export default class GameScene extends Phaser.Scene {
       stats:           { ...GameState.stats },
       stage:           GameState.stage,
       growthTime:      GameState.growthTime,
-      stageGrowthTime: GameState.stageGrowthTime,
+      stageGrowthTime: GameState.stageGrowthTime ?? 0,
       fertilizerStock: GameState.fertilizerStock,
       weather:         this._saveData.weather       ?? 'sunny',
       weatherEndsAt:   this._saveData.weatherEndsAt ?? (Date.now() + 300000),
@@ -151,6 +170,8 @@ export default class GameScene extends Phaser.Scene {
       equippedPot:     GameState.equippedPot ?? null,
       equippedCan:     GameState.equippedCan ?? null,
     };
+    // Actualizar GameState.plantId por si acaso
+    GameState.plantId = this._plantData.id;
     localStorage.setItem('ptg_save', JSON.stringify(save));
     this._saveData = save;
   }

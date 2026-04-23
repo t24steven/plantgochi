@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { SCENES } from '../constants.js';
+import { addAudioButton } from '../utils/AudioButton.js';
 
 export default class MinigamesMenuScene extends Phaser.Scene {
   constructor() {
@@ -18,12 +19,12 @@ export default class MinigamesMenuScene extends Phaser.Scene {
 
     // Panel con fondo nuevo — menu_games: 1079x712 → aspecto 1.52
     this.panel = this.add.image(cx, this.gy(340), 'mg_menu_bg')
-      .setDisplaySize(this.gx(860), this.gy(565))
+      .setDisplaySize(this.gx(760), this.gy(465))
       .setDepth(10);
 
     // Cards centradas dentro del panel
-    this._makeGameCard(cx - this.gx(200), this.gy(320), 'mg_card_fertilizer', 'Catch the fertilizer', SCENES.FERTILIZER);
-    this._makeGameCard(cx + this.gx(200), this.gy(320), 'mg_card_bugs',       'Kill the bugs',        SCENES.BUG_DEFENSE);
+    this._makeGameCard(cx - this.gx(150), this.gy(420), 'mg_card_fertilizer', '', SCENES.FERTILIZER);
+    this._makeGameCard(cx + this.gx(150), this.gy(420), 'mg_card_bugs',       '',        SCENES.BUG_DEFENSE);
 
     // Back
     this.btnBack = this.add.image(cx, height - this.gy(100), 'btn_back')
@@ -35,6 +36,9 @@ export default class MinigamesMenuScene extends Phaser.Scene {
       this.tweens.add({ targets: this.btnBack, scale: 0.92, duration: 80, yoyo: true });
       this.scene.start(SCENES.YARD);
     });
+
+    // ── Botón de audio ─────────────────────────────────
+    addAudioButton(this);
   }
 
   _makeGameCard(x, y, iconKey, labelText, sceneKey) {

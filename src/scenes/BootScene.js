@@ -57,7 +57,7 @@ export default class BootScene extends Phaser.Scene {
     this.load.image('icon_bug',        '/assets/ui/icon_bug.png');
     this.load.image('icon_cabinet',    '/assets/ui/icon_cabinet.png');
     this.load.image('icon_door',       '/assets/ui/icon_door.png');
-    this.load.image('icon_fertilizer', '/assets/ui/icon_fertilizer.png');
+    this.load.image('icon_fertilizer', '/assets/ui/icon_fertilizerr.png');
     this.load.image('icon_fer',        '/assets/ui/icon_fer.png');
     this.load.image('icon_gamepad',    '/assets/ui/icon_gamepad.png');
     this.load.image('icon_notebook',   '/assets/ui/icon_notebook.png');
@@ -118,7 +118,6 @@ export default class BootScene extends Phaser.Scene {
 
     // ── Minijuegos ───────────────────────────────────────
     this.load.image('mg_fertilizer_bag', '/assets/minigames/fertilizer/bag.png');
-    this.load.image('mg_bug',            '/assets/minigames/bugs/bug.png');
     this.load.image('mg_bg_fertilizer',  '/assets/minigames/fertilizer/bg.png');
     this.load.image('mg_bg_bugs',        '/assets/minigames/bugs/bg.png');
 
@@ -141,7 +140,8 @@ export default class BootScene extends Phaser.Scene {
     this.load.image('mg_pause_panel',     '/assets/ui/pause_advise.png');
     this.load.image('mg_lifes',           '/assets/ui/lifes.png');
     this.load.image('mg_lifes_heart',     '/assets/ui/lifes_heart.png');
-    this.load.image('mg_bicho',           '/assets/ui/bicho.png');
+    this.load.image('mg_bug',           '/assets/ui/bicho.png');
+     this.load.image('mg_bolsa',           '/assets/ui/bolsa.png');
     // ── Notebooks de instrucciones de minijuegos ──────────
     this.load.image('mg_info_fertilizer', '/assets/info/catch.png');
     this.load.image('mg_info_bugs',       '/assets/info/kill.png');

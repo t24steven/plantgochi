@@ -77,24 +77,46 @@ export default class BugDefenseScene extends Phaser.Scene {
 
   // ── Construir planta con cara y accesorios ─────────────
   _buildPlant(x, y) {
-    const plantId   = this._plantData?.id ?? 'cactus';
-    const stage     = this._saveData?.stage ?? 2;
-    const stageKey  = stage === 0 ? `${plantId}_semilla` : stage === 1 ? `${plantId}_brote` : `${plantId}_default`;
-    const stageSize = stage === 0 ? 90 : stage === 1 ? 130 : 160;
-    const faceOffY  = stageSize === 90 ? -20 : stageSize === 130 ? -35 : -50;
+    const plantId  = this._plantData?.id ?? 'cactus';
+    const stage    = this._saveData?.stage ?? 2;
+
+    const POT_W = 150, POT_H = 120, POT_Y = 70;
+    const potTop = POT_Y - POT_H / 2;
+
+    let spriteW, spriteH, spriteY, tex;
+    if (stage === 0) {
+      spriteW = 80; spriteH = 117; tex = `${plantId}_semilla`;
+      spriteY = potTop - spriteH / 2 + 20;
+    } else if (stage === 1) {
+      spriteW = 140; spriteH = 140; tex = `${plantId}_brote`;
+      spriteY = potTop - spriteH / 2;
+    } else {
+      spriteW = 210; spriteH = 210; tex = `${plantId}_default`;
+      spriteY = potTop - spriteH / 2;
+    }
+
+    const scale    = stage === 0 ? 0.55 : stage === 1 ? 0.75 : 1.0;
+    const centerY  = stage === 0 ? -55  : stage === 1 ? -80  : -95;
+    const eyeOff   = Math.round(32 * scale);
+    const eyeW     = Math.round(34 * scale);
+    const mouthW   = Math.round(38 * scale);
+    const mouthH   = Math.round(26 * scale);
+    const blushW   = Math.round(30 * scale);
+    const blushH   = Math.round(18 * scale);
+    const blushOff = Math.round(48 * scale);
+    const hatY     = centerY - Math.round(60 * scale);
 
     this._plant = this.add.container(x, y).setDepth(5);
 
     const potKey = this._saveData?.equippedPot ?? 'pot_base';
-    this._plant.add(this.add.image(0, 25, potKey).setDisplaySize(95, 85));
-    this._plant.add(this.add.image(0, -45, stageKey).setDisplaySize(stageSize, stageSize));
+    this._plant.add(this.add.image(0, POT_Y, potKey).setDisplaySize(POT_W, POT_H));
+    this._plant.add(this.add.image(0, spriteY, tex).setDisplaySize(spriteW, spriteH));
 
-    const scale = stageSize / 160;
-    this._faceEyeL   = this.add.image(-28 * scale, faceOffY - 10, 'face_eye_left') .setDisplaySize(28 * scale, 28 * scale);
-    this._faceEyeR   = this.add.image( 28 * scale, faceOffY - 10, 'face_eye_right').setDisplaySize(28 * scale, 28 * scale);
-    this._faceMouth  = this.add.image(0, faceOffY + 20, 'face_mouth')              .setDisplaySize(32 * scale, 22 * scale);
-    this._faceBlushL = this.add.image(-40 * scale, faceOffY + 5, 'face_blush_left') .setDisplaySize(28 * scale, 17 * scale).setAlpha(0);
-    this._faceBlushR = this.add.image( 40 * scale, faceOffY + 5, 'face_blush_right').setDisplaySize(28 * scale, 17 * scale).setAlpha(0);
+    this._faceEyeL   = this.add.image(-eyeOff, centerY - Math.round(12 * scale), 'face_eye_left') .setDisplaySize(eyeW, eyeW);
+    this._faceEyeR   = this.add.image( eyeOff, centerY - Math.round(12 * scale), 'face_eye_right').setDisplaySize(eyeW, eyeW);
+    this._faceMouth  = this.add.image(0, centerY + Math.round(14 * scale), 'face_mouth')          .setDisplaySize(mouthW, mouthH);
+    this._faceBlushL = this.add.image(-blushOff, centerY + Math.round(2 * scale), 'face_blush_left') .setDisplaySize(blushW, blushH).setAlpha(0);
+    this._faceBlushR = this.add.image( blushOff, centerY + Math.round(2 * scale), 'face_blush_right').setDisplaySize(blushW, blushH).setAlpha(0);
     this._plant.add(this._faceEyeL);
     this._plant.add(this._faceEyeR);
     this._plant.add(this._faceMouth);
@@ -102,10 +124,7 @@ export default class BugDefenseScene extends Phaser.Scene {
     this._plant.add(this._faceBlushR);
 
     if (this._saveData?.equippedHat) {
-      this._plant.add(this.add.image(0, faceOffY - 60, this._saveData.equippedHat).setDisplaySize(80 * scale, 60 * scale));
-    }
-    if (this._saveData?.equippedCan) {
-      this._plant.add(this.add.image(stageSize * 0.55, 25, this._saveData.equippedCan).setDisplaySize(50, 50));
+      this._plant.add(this.add.image(0, hatY, this._saveData.equippedHat).setDisplaySize(110, 80));
     }
 
     this._idleTween = this.tweens.add({
@@ -137,27 +156,49 @@ export default class BugDefenseScene extends Phaser.Scene {
 
     const overlay = this.add.rectangle(cx, cy, this._width, this._height, 0x000000, 0.5).setDepth(25);
 
-    // kill.png: 1162x649 → aspecto 1.79, mostrar a ~900x503
     const notebook = this.add.image(cx, cy - 30, 'mg_info_bugs')
       .setDisplaySize(900, 503).setDepth(26);
 
     // Reproducir voz de instrucciones
-    this.time.delayedCall(300, () => this.sound.play('sfx_bugs_voice', { volume: 0.8 }));
+    const voiceKey = 'sfx_bugs_voice';
+    let _voiceSound = null;
+    this.time.delayedCall(300, () => {
+      _voiceSound = this.sound.add(voiceKey, { volume: 0.8 });
+      _voiceSound.play();
+    });
+
+    // Botón de voz — solo pausa/reanuda la voz de instrucciones
+    let _voicePaused = false;
+    const voiceBtn = this.add.image(this._width - 45, this._height - 45, 'btn_voice')
+      .setDisplaySize(65, 65).setDepth(29).setInteractive({ useHandCursor: true });
+    voiceBtn.on('pointerdown', () => {
+      if (!_voiceSound) return;
+      if (!_voicePaused) {
+        _voiceSound.pause();
+        _voicePaused = true;
+        voiceBtn.setAlpha(0.4);
+      } else {
+        try { _voiceSound.resume(); } catch(e) {}
+        _voicePaused = false;
+        voiceBtn.setAlpha(1);
+      }
+    });
+    voiceBtn.on('pointerover', () => voiceBtn.setTint(0xdddddd));
+    voiceBtn.on('pointerout',  () => voiceBtn.clearTint());
 
     const btnPlay = this.add.image(cx, cy + 220, 'btn_select')
       .setDisplaySize(220, 65).setInteractive({ useHandCursor: true }).setDepth(27);
-    const btnPlayTxt = this.add.text(cx, cy + 220, 'Play', {
+    const btnPlayTxt = this.add.text(cx, cy + 220, '', {
       fontSize: '26px', color: '#ffffff', fontFamily: 'Arial', fontStyle: 'bold'
     }).setOrigin(0.5).setDepth(28);
 
     btnPlay.on('pointerover',  () => btnPlay.setTint(0xffddaa));
     btnPlay.on('pointerout',   () => btnPlay.clearTint());
     btnPlay.on('pointerdown', () => {
-      // Solo parar la voz de instrucciones, no el BGM
-      const voice = this.sound.get('sfx_bugs_voice');
-      if (voice?.isPlaying) voice.stop();
+      if (_voiceSound?.isPlaying) _voiceSound.stop();
       overlay.destroy(); notebook.destroy();
       btnPlay.destroy(); btnPlayTxt.destroy();
+      voiceBtn.destroy();
       this._startGame();
     });
   }
@@ -383,7 +424,7 @@ export default class BugDefenseScene extends Phaser.Scene {
     retryBtn.on('pointerout',   () => retryBtn.clearTint());
     retryBtn.on('pointerdown',  () => {
       this.sound.play('sfx_click', { volume: 0.4 });
-      this.scene.start(SCENES.YARD, { reward: { coins: this._coins } });
+      this.scene.restart();
     });
 
     const exitBtn = this.add.image(cx + btnSpacing, cy + 80, 'mg_exit_btn')

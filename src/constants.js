@@ -54,7 +54,7 @@ export const WEATHER = {
 // ── Minijuego: Catch the Fertilizer ──────────────────────
 export const MINIGAME_FERTILIZER = {
   // Monedas ganadas por cada bolsa atrapada
-  COINS_PER_BAG:    10,
+  COINS_PER_BAG:    1,
   // Velocidad inicial de caída de bolsas (px/s)
   INITIAL_SPEED:    200,
   // Velocidad máxima
@@ -72,7 +72,7 @@ export const MINIGAME_FERTILIZER = {
 // ── Minijuego: Kill the Bugs ──────────────────────────────
 export const MINIGAME_BUGS = {
   // Monedas ganadas por cada bug eliminado
-  COINS_PER_BUG:       12,
+  COINS_PER_BUG:       5,
   // Velocidad inicial de los bugs (px/s)
   INITIAL_SPEED_MIN:   100,
   INITIAL_SPEED_MAX:   180,
